@@ -1,0 +1,2588 @@
+library(BasketballAnalyzeR)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(psych)
+library(ggplot2)
+library(runner)
+library(caret)
+library(corrplot)
+dts1 <- read.csv("2012-18_teamBoxScore.csv")
+dts1$gmDate <- as.Date(as.character(dts1$gmDate))
+year <- as.numeric(format(dts1$gmDate,"%Y"))
+month <- as.numeric(format(dts1$gmDate,"%m"))
+dts1$season <- ifelse(month<5, paste0(year-1,"-",year),paste0(year,"-",year+1))
+dts2 <- read.csv("2012-18_standings.csv")
+dts2$stDate <- as.Date(as.character(dts2$stDate)) 
+home <- dts1 %>%
+  slice(which(teamLoc=="Home")) %>%
+  mutate(gmID = row_number()) %>%
+  relocate(c(gmID,season), .before=gmDate) 
+team<- function(x) {
+  str_replace(x,"team","H.")
+}  
+oppt<- function(x) {
+  str_replace(x,"oppt","A.")
+}
+perc<- function(x) {
+  str_replace(x,".$","%")
+}
+home1 <- home %>%
+  rename_with(team, .cols=starts_with("team")) %>%
+  rename_with(oppt, .cols=starts_with("oppt")) %>%
+  rename_with(perc, .cols=ends_with("."))
+merge1 <- home1 %>% 
+  mutate_if(is.character,as.factor)
+merge2 <- dts2 %>% 
+  mutate_if(is.character,as.factor)
+t1 <- left_join(merge1,merge2, by = c("gmDate" = "stDate", "H.Abbr" = "teamAbbr"))
+t2 <- left_join(merge1,merge2, by = c("gmDate" = "stDate", "A.Abbr" = "teamAbbr"))
+h <- function(x) {
+  paste0("H.",x)
+}
+a <- function(x) {
+  paste0("A.",x)
+}
+t11 <- t1 %>%
+  select(rank:lpyth16.5) %>%
+  rename_with(h,everything())
+t21 <- t2 %>%
+  select(rank:lpyth16.5) %>%
+  rename_with(a,everything())
+home2 <- bind_cols(home1,t11,t21)
+str(home2,list.len=199)
+home3 <- home2 %>%
+  mutate(off1 = paste0(offFNm1," ",offLNm1),
+         off2 = paste0(offFNm2," ",offLNm2),
+         off3 = paste0(offFNm3," ",offLNm3)) %>%
+  relocate(off1:off3, .before=offLNm1) %>%
+  mutate(H.Win = ifelse(H.Rslt=="Win", paste0("1"),paste0("0"))) %>%
+  relocate(H.Win, .after = A.lpyth16.5) %>%
+  mutate(MIN = ifelse(H.Min<=243,240,ifelse(H.Min<=267,265,ifelse(H.Min<=292,290,ifelse(H.Min<=317,315,340))))) %>%
+  relocate(MIN, .after = off3) %>%
+  select(!(c(gmTime, seasTyp, offLNm1:offFNm3, H.Loc, A.Loc, H.Rslt, A.Rslt, H.Min, A.Min, poss, pace, H.rankOrd, A.rankOrd, H.stkTot, A.stkTot, H.stkType, A.stkType)))
+w1<-which(is.na(home3), arr.ind=TRUE)
+w1
+nas <- home3 %>%
+  slice(unique(w1[,1]))
+add <- read.csv("add.csv",header = F,sep = ";")
+add[1,1]<-11
+names(add)<-names(home3[,114:181])
+str(add)
+n1 <- home3 %>%
+  slice(1:4333)
+n2 <- home3 %>%
+  slice(4334:4342)
+n3 <- home3 %>%
+  slice(4343:5092)
+n4 <- home3 %>%
+  slice(5093:5102)
+n5 <- home3 %>%
+  slice(5103:5184)
+n6 <- home3 %>%
+  slice(5185:5193)
+n7 <- home3 %>%
+  slice(5194:7379)
+add1 <- add %>%
+  slice(1:9)
+add2 <- add %>%
+  slice(10:19)
+add3 <- add %>%
+  slice(20:28)
+z2 <- n2 %>%
+  select(gmID:A.STL.TO,H.Win)
+x2 <- bind_cols(z2,add1)
+y2 <- x2 %>%
+  relocate(H.Win, .after=last_col())
+z4 <- n4 %>%
+  select(gmID:A.STL.TO,H.Win)
+x4 <- bind_cols(z4,add2)
+y4 <- x4 %>%
+  relocate(H.Win, .after=last_col())
+z6 <- n6 %>%
+  select(gmID:A.STL.TO,H.Win)
+x6 <- bind_cols(z6,add3)
+y6 <- x6 %>%
+  relocate(H.Win, .after=last_col())
+home4 <-rbind(n1,y2,n3,y4,n5,y6,n7)
+str(home4,list.len=182)
+home5 <- home4 %>%
+  mutate_if(is.character,as.factor) 
+str(home5,list.len=182)
+home5$H.rank <- ordered(home5$H.rank,levels=c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15"))
+home5$A.rank <- ordered(home5$A.rank,levels=c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15"))
+summary(home5$off3)
+which(home5$off3==" ") # row 3392 6666
+blank<-home5[which(home5$off3==" "),] 
+home5[3392,6]<-"J.T. Orr"
+home5[6666,6]<-"Gediminas Petraitis"
+home5$off3<-droplevels(home5$off3, exclude = " ")
+summary(home5$off3)
+str(home5,list.len=182)
+homef<- home5 %>%
+  rename(H.Team = H.Abbr, A.Team = A.Abbr,
+         H.OREB = H.ORB, H.DREB = H.DRB, H.TREB = H.TRB, A.OREB = A.ORB, A.DREB = A.DRB, A.TREB = A.TRB,
+         `H.PLAY%` = `H.Play%`, `A.PLAY%` = `A.Play%`,
+         `H.AST/TO` = H.AST.TO, `A.AST/TO` = A.AST.TO,
+         H.gmW = H.gameWon, H.gmL = H.gameLost, H.gmBack = H.gameBack, A.gmW = A.gameWon,  A.gmL = A.gameLost, A.gmBack = A.gameBack,
+         H.cumPtsScore = H.ptsFor, H.cumPtsAllow = H.ptsAgnst, A.cumPtsScore = A.ptsFor, A.cumPtsAllow = A.ptsAgnst,
+         H.homeW = H.homeWin, H.homeL = H.homeLoss, A.homeW = A.homeWin, A.homeL = A.homeLoss,
+         H.awayW = H.awayWin, H.awayL = H.awayLoss, A.awayW = A.awayWin, A.awayL = A.awayLoss,
+         H.confW = H.confWin, H.confL = H.confLoss, A.confW = A.confWin, A.confL = A.confLoss,
+         H.gmPlay = H.gamePlay, A.gmPlay = A.gamePlay,
+         H.opptGmW = H.opptGmWon, H.opptOpptGmW = H.opptOpptGmWon, A.opptGmW = A.opptGmWon, A.opptOpptGmW = A.opptOpptGmWon,
+         `H.pyth1391%` = H.pyth.13.91, `A.pyth1391%` = A.pyth.13.91,
+         `H.pyth165%` = H.pyth.16.5, `A.pyth165%` = A.pyth.16.5) %>%
+  mutate(H.POSS = H.FGA+0.4*H.FTA-1.07*(H.OREB/(H.OREB+A.DREB))*(H.FGA-H.FGM)+H.TO, A.POSS = A.FGA+0.4*A.FTA-1.07*(A.OREB/(A.OREB+H.DREB))*(A.FGA-A.FGM)+A.TO,
+         POSS = 0.5*((H.FGA+0.4*H.FTA-1.07*(H.OREB/(H.OREB+A.DREB))*(H.FGA-H.FGM)+H.TO)+(A.FGA+0.4*A.FTA-1.07*(A.OREB/(A.OREB+H.DREB))*(A.FGA-A.FGM)+A.TO)),
+         H.PACE = (240/MIN)*H.POSS, A.PACE = (240/MIN)*A.POSS, PACE = (240/MIN)*POSS,
+         `H.TREB%`=`H.TREB%`/100, `A.TREB%`=`A.TREB%`/100,
+         `H.FGMAST%` = (H.AST/H.FGM), `A.FGMAST%` = (A.AST/A.FGM),
+         H.FTR = H.FTA/H.FGA, A.FTR = A.FTA/A.FGA,
+         H.TSA = H.FGA+0.44*H.FTA, `H.TS%` = H.PTS/(2*H.TSA), A.TSA = A.FGA+0.44*A.FTA, `A.TS%` = H.PTS/(2*H.TSA),
+         H.TOR = (H.TO*100)/(H.FGA+0.44*H.FTA+H.AST+H.TO), A.TOR = (A.TO*100)/(A.FGA+0.44*A.FTA+A.AST+A.TO),
+         H.BLKR1 = H.BLK/A.FGA, H.BLKR2 = H.BLK/(A.FGA-A.FGM), A.BLKR1 = A.BLK/H.FGA, A.BLKR2 = A.BLK/(H.FGA-H.FGM),
+         H.PPS = ((2*H.2PM)+(3*H.3PM))/H.FGA, A.PPS = ((2*A.2PM)+(3*A.3PM))/A.FGA,
+         H.FIC48 = H.FIC * 240 / MIN, A.FIC48 = A.FIC * 240 / MIN,
+         H.VIR = (H.PTS+1.5*H.AST+H.STL+0.75*H.BLK+1.25*H.OREB+0.75*H.DREB+0.5*H.3PM+0.5*A.PF-0.5*H.PF-0.75*((H.3PA-H.3PM)+(H.2PA-H.2PM))-H.TO-0.5*(H.FTA-H.FTM))/MIN, A.VIR = (A.PTS+1.5*A.AST+A.STL+0.75*A.BLK+1.25*A.OREB+0.75*A.DREB+0.5*A.3PM+0.5*H.PF-0.5*A.PF-0.75*((A.3PA-A.3PM)+(A.2PA-A.2PM))-A.TO-0.5*(A.FTA-A.FTM))/MIN,
+         `H.POWER%` = (H.FGM+H.OREB)/(H.FGA+H.TO), `A.POWER%` = (A.FGM+A.OREB)/(A.FGA+A.TO),
+         `H.FLOOR%` = H.FGM+0.4*H.FTA*(`H.FT%`*`H.FT%`+2*`H.FT%`*(1-`H.FT%`))/POSS, `A.FLOOR%` = A.FGM+0.4*A.FTA*(`A.FT%`*`A.FT%`+2*`A.FT%`*(1-`A.FT%`))/POSS,
+         H.ORtg = (H.PTS/POSS)*100, H.DRtg = (A.PTS/POSS)*100, H.eDIFF = H.ORtg - H.DRtg, A.ORtg = (A.PTS/POSS)*100, A.DRtg = (H.PTS/POSS)*100, A.eDIFF = A.ORtg - A.DRtg,
+         H.ASTR = (H.AST*100)/(H.FGA+0.44*H.FTA+H.AST+H.TO), A.ASTR = (A.AST*100)/(A.FGA+0.44*A.FTA+A.AST+A.TO),
+         `H.STL/TO` = H.STL.TO/100, `A.STL/TO` = A.STL.TO/100,
+         H.FF1O = (H.FGM+0.5*H.3PM)/H.FGA, H.FF1D = (A.FGM+0.5*A.3PM)/A.FGA, A.FF1O = (A.FGM+0.5*A.3PM)/A.FGA, A.FF1D = (H.FGM+0.5*H.3PM)/H.FGA,
+         H.FF2O = H.TO/POSS, H.FF2D = A.TO/POSS, A.FF2O = A.TO/POSS, A.FF2D = H.TO/POSS,
+         H.FF3O = H.OREB/(H.OREB+A.DREB), H.FF3D = H.DREB/(H.DREB+A.OREB), A.FF3O = A.OREB/(A.OREB+H.DREB), A.FF3D = A.DREB/(A.DREB+H.OREB),
+         H.FF4O = H.FTM/H.FGA, H.FF4D = A.FTM/A.FGA, A.FF4O = A.FTM/A.FGA, A.FF4D = H.FTM/H.FGA,
+         `H.W/L%` = H.gmW/H.gmPlay, `A.W/L%` = A.gmW/A.gmPlay,
+         `H.opptW/L%` = H.opptGmW/H.opptGmPlay, `A.opptW/L%` = A.opptGmW/A.opptGmPlay,
+         `H.opptOpptW/L%` = H.opptOpptGmW/H.opptOpptGmPlay, `A.opptOpptW/L%` = A.opptOpptGmW/A.opptOpptGmPlay,
+         H.avPtsScore = H.cumPtsScore/H.gmPlay, H.avPtsAllow = H.cumPtsAllow/H.gmPlay, A.avPtsScore = A.cumPtsScore/A.gmPlay, A.avPtsAllow = A.cumPtsAllow/A.gmPlay,
+         H.SOS = ((2*`H.opptW/L%`)+`H.opptOpptW/L%`)/3, A.SOS = ((2*`A.opptW/L%`)+`A.opptOpptW/L%`)/3,
+         H.RPI = (0.25*`H.W/L%`)+(0.5*`H.opptW/L%`)+(0.25*`H.opptOpptW/L%`), A.RPI = (0.25*`A.W/L%`)+(0.5*`A.opptW/L%`)+(0.25*`A.opptOpptW/L%`),
+         H.avMOV = H.avPtsScore-H.avPtsAllow, A.avMOV = A.avPtsScore-A.avPtsAllow,
+         H.SRS = H.avMOV-H.SOS, A.SRS = A.avMOV-A.SOS,
+         H.wpyth1391 = `H.pyth1391%` * H.gmPlay, A.wpyth1391 = `A.pyth1391%` * A.gmPlay,
+         H.wpyth165 = `H.pyth165%` * H.gmPlay, A.wpyth165 = `A.pyth165%` * A.gmPlay) %>%
+  select(c(gmID:gmDate,
+           H.Team, A.Team, H.Conf, A.Conf, H.Div, A.Div,
+           H.PTS, A.PTS, H.AST, A.AST, H.TO, A.TO, H.STL, A.STL, H.BLK, A.BLK, H.OREB, A.OREB, H.DREB, A.DREB, H.TREB, A.TREB, H.PF, A.PF,
+           H.FGA, A.FGA, H.FGM, A.FGM, `H.FG%`, `A.FG%`, 
+           H.2PA, A.2PA, H.2PM, A.2PM, `H.2P%`, `A.2P%`, 
+           H.3PA, A.3PA, H.3PM, A.3PM, `H.3P%`, `A.3P%`, 
+           H.FTA, A.FTA, H.FTM, A.FTM, `H.FT%`, `A.FT%`,
+           H.PTS1, A.PTS1, H.PTS2, A.PTS2, H.PTS3, A.PTS3, H.PTS4, A.PTS4, H.PTS5, A.PTS5, H.PTS6, A.PTS6, H.PTS7, A.PTS7, H.PTS8, A.PTS8,
+           H.TSA, A.TSA, `H.TS%`, `A.TS%`, `H.FGMAST%`, `A.FGMAST%`, H.FTR, A.FTR, H.PPS, A.PPS,
+           `H.TREB%`, `A.TREB%`, H.TOR, A.TOR, H.BLKR1, A.BLKR1, H.BLKR2, A.BLKR2, H.ASTR, A.ASTR, `H.AST/TO`, `A.AST/TO`, `H.STL/TO`, `A.STL/TO`,
+           `H.PLAY%`, `A.PLAY%`, `H.FLOOR%`, `A.FLOOR%`, `H.POWER%`, `A.POWER%`,
+           H.POSS, A.POSS, H.PACE, A.PACE,
+           H.FIC, A.FIC, H.FIC48, A.FIC48, H.VIR, A.VIR,
+           H.ORtg, A.ORtg, H.DRtg, A.DRtg, H.eDIFF, A.eDIFF,
+           H.FF1O, A.FF1O, H.FF1D, A.FF1D, H.FF2O, A.FF2O, H.FF2D, A.FF2D, H.FF3O, A.FF3O, H.FF3D, A.FF3D, H.FF4O, A.FF4O, H.FF4D, A.FF4D,
+           H.rank, A.rank, H.gmPlay, A.gmPlay, H.gmW, A.gmW, H.gmL, A.gmL, `H.W/L%`, `A.W/L%`, H.gmBack, A.gmBack,
+           H.stk, A.stk, H.DayOff, A.DayOff, H.lastFive, A.lastFive, H.lastTen, A.lastTen,
+           H.homeW, A.homeW, H.homeL, A.homeL, H.awayW, A.awayW, H.awayL, A.awayL, H.confW, A.confW, H.confL, A.confL, 
+           H.cumPtsScore, A.cumPtsScore, H.cumPtsAllow, A.cumPtsAllow, H.avPtsScore, A.avPtsScore, H.avPtsAllow, A.avPtsAllow, H.avMOV, A.avMOV,
+           H.opptGmPlay, A.opptGmPlay, H.opptGmW, A.opptGmW, `H.opptW/L%`, `A.opptW/L%`,
+           H.opptOpptGmPlay, A.opptOpptGmPlay, H.opptOpptGmW, A.opptOpptGmW, `H.opptOpptW/L%`, `A.opptOpptW/L%`,
+           H.RPI, A.RPI, H.SOS, A.SOS, H.SRS, A.SRS,
+           `H.pyth1391%`, `A.pyth1391%`, H.wpyth1391, A.wpyth1391,
+           `H.pyth165%`, `A.pyth165%`, H.wpyth165, A.wpyth165,
+           off1,off2,off3,
+           MIN,POSS,PACE,
+           H.Win))
+head(homef)
+wf<-which(is.na(homef), arr.ind=TRUE)
+wf 
+unique(wf[,1])#still na? no they are NaN (0/0),due to the absance of data for the first matches of the season
+head(homef)
+summ<-summary(homef)
+head(summ)
+try <- homef %>%
+  mutate(rtg = H.ORtg+A.ORtg) %>%
+  group_by(season,gmDate) %>%
+  summarise(tot = sum(rtg), n = n()) %>%
+  mutate(VBP = cumsum(tot)/(2*cumsum(n))) %>%
+  select(gmDate,season,VBP)
+tryj <- left_join(homef,try[,c(1,3)],by = c("gmDate" = "gmDate"))
+homef1<- tryj %>%
+  mutate(H.VBPdiff = H.ORtg - VBP, A.VBPdiff = A.ORtg - VBP) %>%
+  relocate(H.VBPdiff:A.VBPdiff, .after = A.eDIFF) %>%
+  select(!VBP)
+y<-homef1$H.Win
+x1<-homef1$H.VBPdiff
+x2<-homef1$A.VBPdiff
+biserial(x1,y) # 0.6443884
+biserial(x2,y) # -0.6488389
+logit <- glm(y ~ x1, family = "binomial")
+sum(round(predict(logit, type = "response")) == y) / length(y) #accuracy 0.731671
+vbpdata1 <- try %>%
+  group_by(season) %>%
+  filter(row_number() == n())
+g <- ggplot(try) +
+  geom_point(aes(x=gmDate, y=VBP), size=1) +
+  facet_wrap(~ season, scales = "free_x") +
+  geom_hline(data = vbpdata1, aes(yintercept=VBP), col="red") +
+  theme_bw()
+g + labs(title="Value of Ball Possession over seasons") +
+  theme(plot.title = element_text(hjust = 0.5))
+vbpdiffdata <- homef1 %>%
+  filter(season == "2015-2016") %>%
+  select(c(season:A.Conf,H.VBPdiff,A.VBPdiff)) %>%
+  mutate(team.loc1 = rep("Home"), team.loc2 = rep("Away"))
+colnames(vbpdiffdata) <- c("season","gmDate","team","team","conf","conf","VBPdiff","VBPdiff","loc","loc")
+vbpdiffdata1 <- bind_rows(vbpdiffdata[,c(1,2,3,5,7,9)],vbpdiffdata[,c(1,2,4,6,8,10)]) %>%
+  arrange(gmDate)
+vbpdiffdata1a <- vbpdiffdata1 %>%
+  filter(conf=="East")
+vbpdiffdata1b <- vbpdiffdata1 %>%
+  filter(conf=="West")
+vbpdiffdata2 <- vbpdiffdata1 %>%
+  group_by(team, loc, conf) %>%
+  summarise(avVBP = mean(VBPdiff))
+vbpdiffdata2a <- vbpdiffdata2 %>%
+  filter(conf=="East",loc=="Home")
+vbpdiffdata2b <- vbpdiffdata2 %>%
+  filter(conf=="East",loc=="Away")
+vbpdiffdata2c <- vbpdiffdata2 %>%
+  filter(conf=="West",loc=="Home")
+vbpdiffdata2d <- vbpdiffdata2 %>%
+  filter(conf=="West",loc=="Away")
+rankdata1 <- data.frame(label = c("4°","14°","5°","6°","9°","1°","8°","7°","3°","12°","13°","11°","15°","2°","10°"), 
+                        team = as.factor(c("ATL", "BKN", "BOS", "CHA", "CHI", "CLE", "DET", "IND", "MIA", "MIL", "NY", "ORL", "PHI", "TOR", "WAS")),
+                        x = as.Date(rep("2016-01-22",15)),
+                        y = rep(40,15))
+rankdata2 <- data.frame(label = c("6°","11°","1°","8°","4°","15°","7°","13°","12°","3°","14°","5°","2°","10°","9°"), 
+                        team = as.factor(c("DAL", "DEN", "GS", "HOU", "LAC", "LAL", "MEM", "MIN", "NO", "OKC", "PHO", "POR", "SA", "SAC", "UTA")),
+                        x = as.Date(rep("2016-01-22",15)),
+                        y = rep(40,15))
+ga1 <- ggplot(vbpdiffdata1a) +
+  geom_bar(aes(x=gmDate, y=VBPdiff, fill=loc), stat = "identity") +
+  scale_fill_manual(values = c("darkorange1","blue"), name = "Location") +
+  facet_wrap(~ team) +
+  geom_text(data = rankdata1, mapping = aes(x = x, y = y, label = label)) +
+  geom_hline(yintercept = 0) + 
+  geom_hline(data = vbpdiffdata2a, aes(yintercept=avVBP), col="blue") +
+  geom_hline(data = vbpdiffdata2b, aes(yintercept=avVBP), col="darkorange1") +
+  theme_bw()
+ga1 + labs(title="Eastern Conference (2015-16)") +
+  theme(plot.title = element_text(hjust = 0.5))
+ga2 <- ggplot(vbpdiffdata1b) +
+  geom_bar(aes(x=gmDate, y=VBPdiff, fill=loc), stat = "identity") +
+  scale_fill_manual(values = c("darkorange1","blue"), name = "Location") +
+  facet_wrap(~ team) +
+  geom_text(data = rankdata2, mapping = aes(x = x, y = y, label = label)) +
+  geom_hline(yintercept = 0) + 
+  geom_hline(data = vbpdiffdata2c, aes(yintercept=avVBP), col="blue") +
+  geom_hline(data = vbpdiffdata2d, aes(yintercept=avVBP), col="darkorange1") +
+  theme_bw() 
+ga2 + labs(title="Western Conference (2015-16)") +
+  theme(plot.title = element_text(hjust = 0.5))
+ga4<- ggplot(subset(vbpdiffdata1a,team=="CLE"|team=="TOR"|team=="BKN"|team=="PHI")) +
+  geom_bar(aes(x=gmDate, y=VBPdiff, fill=loc), stat = "identity") +
+  scale_fill_manual(values = c("darkorange1","blue"), name = "Location") +
+  facet_wrap(~ team) +
+  geom_text(data = subset(rankdata1,team=="CLE"|team=="TOR"|team=="BKN"|team=="PHI"), mapping = aes(x = x, y = y, label = label)) +
+  geom_hline(yintercept = 0) + 
+  geom_hline(data = subset(vbpdiffdata2a,team=="CLE"|team=="TOR"|team=="BKN"|team=="PHI"), aes(yintercept=avVBP), col="blue") +
+  geom_hline(data = subset(vbpdiffdata2b,team=="CLE"|team=="TOR"|team=="BKN"|team=="PHI"), aes(yintercept=avVBP), col="darkorange1") +
+  theme_bw() 
+ga4 + labs(title="Top teams vs bottom teams (Eastern Conference 2015/16)") +
+  theme(plot.title = element_text(hjust = 0.5))
+ga3<- ggplot(subset(vbpdiffdata1b,team=="GS"|team=="SA"|team=="PHO"|team=="LAL")) +
+  geom_bar(aes(x=gmDate, y=VBPdiff, fill=loc), stat = "identity") +
+  scale_fill_manual(values = c("darkorange1","blue"), name = "Location") +
+  facet_wrap(~ team) +
+  geom_text(data = subset(rankdata2,team=="GS"|team=="SA"|team=="PHO"|team=="LAL"), mapping = aes(x = x, y = y, label = label)) +
+  geom_hline(yintercept = 0) + 
+  geom_hline(data = subset(vbpdiffdata2c,team=="GS"|team=="SA"|team=="PHO"|team=="LAL"), aes(yintercept=avVBP), col="blue") +
+  geom_hline(data = subset(vbpdiffdata2d,team=="GS"|team=="SA"|team=="PHO"|team=="LAL"), aes(yintercept=avVBP), col="darkorange1") +
+  theme_bw() 
+ga3 + labs(title="Top teams vs bottom teams (Western Conference 2015/16)") +
+  theme(plot.title = element_text(hjust = 0.5))
+vbpdiffdata1516 <- homef1 %>%
+  filter(season == "2015-2016") %>%
+  select(c(season:A.Conf,H.VBPdiff,A.VBPdiff,`H.W/L%`,`A.W/L%`)) %>%
+  mutate(team.loc1 = rep("H"), team.loc2 = rep("A"))
+colnames(vbpdiffdata1516) <- c("season","gmDate","team","team","conf","conf","VBPdiff","VBPdiff","W/L%","W/L%","loc","loc")
+vbpdiffdata1516x <- bind_rows(vbpdiffdata1516[,c(1,2,3,5,7,9,11)],vbpdiffdata1516[,c(1,2,4,6,8,10,12)]) %>%
+  arrange(gmDate)
+vbpdiffdata1516xe <- vbpdiffdata1516x %>%
+  filter(conf=="East")
+vbpdiffdata1516xw <- vbpdiffdata1516x %>%
+  filter(conf=="West")
+temp <- vbpdiffdata1516x %>%
+  group_by(team, conf) %>%
+  summarise(finalWL = last(`W/L%`))
+vbpdiffdata1516y <- vbpdiffdata1516x %>%
+  group_by(team, loc, conf) %>%
+  summarise(avVBPdiff = mean(VBPdiff)) %>%
+  pivot_wider(id_cols = c(team,conf), 
+              names_from = loc, 
+              names_glue = "{loc}.{.value}", 
+              values_from = avVBPdiff) %>%
+  ungroup() %>%
+  mutate(rank = c("4°","14°","5°","6°","9°","1°","6°","11°","8°","1°","8°","7°","4°","15°","7°",
+                  "3°","12°","13°","12°","13°","3°","11°","15°","14°","5°","2°","10°","2°","9°","10°"),
+         elomean = elomean1516)
+lab <- c("Home VBPdiff (seasonal average)",
+         "Away VBPdiff (seasonal average)",
+         "Conference",
+         "Elo Rating \n(seas. av.)")
+b1<-bubbleplot(vbpdiffdata1516y, id = "rank", x="H.avVBPdiff", y="A.avVBPdiff", col="conf", size="elomean",
+           labels = lab, scale.size = TRUE) +
+  scale_fill_manual(values = c("deepskyblue","firebrick2"))
+b1 + labs(title="Seasonal Averages of VBPdiff (season 2015/16)") +
+  theme(plot.title = element_text(hjust = 0.5))
+g1 <- ggplot(try2, aes(x=season, y=HCA.app)) + 
+  geom_bar(position="dodge2", stat="identity", aes(fill=season)) +
+  scale_fill_brewer(palette="Dark2") +
+  facet_wrap(~ H.Team) + 
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank())
+g1
+g2 <- ggplot(try2, aes(x=season, y=HCA.est)) +
+  geom_bar(position="dodge2", stat="identity", aes(fill=season)) +
+  geom_hline(yintercept=0.6) +
+  scale_fill_brewer(palette="Dark2") +
+  facet_wrap(~ H.Team) + 
+  labs(y = "home W/L%") +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank())
+g2
+g2a<-g2
+g2a$data <- g2$data %>% 
+  filter(H.Conf=="East")
+g2a + labs(title="Eastern Conference") +
+  theme(plot.title = element_text(hjust = 0.5))
+g2b<-g2
+g2b$data <- g2$data %>% 
+  filter(H.Conf=="West")
+g2b + labs(title="Western Conference") +
+  theme(plot.title = element_text(hjust = 0.5))
+try3<- homef1 %>%
+  group_by(H.Team,season) %>%
+  mutate(homeW = sum(H.Win==1),
+         homePlay = n(),
+         HCA.est = homeW/homePlay,
+         HCA.app = ifelse(HCA.est<0.5,0.45,ifelse(HCA.est<0.6,0.55,ifelse(HCA.est<0.7,0.65,0.75)))) %>%
+  select(season,H.Team,HCA.app,HCA.est,H.Conf)
+try4<- try3 %>%
+  group_by(H.Team) %>%
+  mutate(avHCA.est = mean(HCA.est),
+         avHCA.app = mean(HCA.app),
+         HCA=0.6)
+hcadata<- try4 %>%
+  select(H.Team,HCA,avHCA.app,avHCA.est)
+try5 <- try2 %>%
+  mutate(diffHCA.est = HCA.est-0.6,
+         diffHCA.app = HCA.app-0.6)
+g3 <- ggplot(try5, aes(x=season, y=diffHCA.est)) +
+  geom_bar(position="dodge2", stat="identity",aes(fill=diffHCA.est>0) ) +
+  geom_hline(yintercept=0) +
+  scale_fill_manual(values = c("red","green"),name = "season HCA", labels = c("<0.6", ">=0.6")) +
+  facet_wrap(~ H.Team) +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) 
+g3
+try61<- dts2 %>%
+  filter(stDate=="2013-04-17") %>%
+  select(stDate:rank)
+try62<- dts2 %>%
+  filter(stDate=="2014-04-16") %>%
+  select(stDate:rank)
+try63<- dts2 %>%
+  filter(stDate=="2015-04-15") %>%
+  select(stDate:rank)
+try64<- dts2 %>%
+  filter(stDate=="2016-04-13") %>%
+  select(stDate:rank)
+try65<- dts2 %>%
+  filter(stDate=="2017-04-12") %>%
+  select(stDate:rank)
+try66<- dts2 %>%
+  filter(stDate=="2018-04-11") %>%
+  select(stDate:rank)
+try6<- bind_rows(try61,try62,try63,try64,try65,try66)
+try6a <- try6 %>%
+  mutate(season = ifelse(stDate == "2013-04-17","2012-2013",
+                         ifelse(stDate == "2014-04-16","2013-2014",
+                                ifelse(stDate == "2015-04-15","2014-2015",
+                                       ifelse(stDate == "2016-04-13","2015-2016",
+                                              ifelse(stDate == "2017-04-12","2016-2017","2017-2018")))))) %>%
+  select(season,teamAbbr,rank)
+try6j <- left_join(try5,try6a, by = c("season" = "season", "H.Team" = "teamAbbr"))
+g4 <- ggplot(try6j, aes(x=season, y=diffHCA.est)) +
+  geom_bar(position="dodge2", stat="identity",aes(fill=diffHCA.est>0) ) +
+  scale_fill_manual(values = c("red","green"),name = "season HCA", labels = c("<0.6", ">=0.6")) +
+  facet_wrap(~ H.Team) +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  geom_hline(yintercept=0) + 
+  geom_text(aes(label=rank)) +
+  labs(y = "home W/L% - 0.6")
+g4
+g4a<-g4
+g4a$data <- g4$data %>%
+  filter(H.Conf=="East")
+g4a + labs(title="Eastern Conference") +
+  theme(plot.title = element_text(hjust = 0.5))
+g4b<-g4
+g4b$data <- g4$data %>%
+  filter(H.Conf=="West")
+g4b + labs(title="Western Conference") +
+  theme(plot.title = element_text(hjust = 0.5))
+homef2<- homef1 %>%
+  select(c(gmID:A.avMOV,`H.pyth1391%`:`A.wpyth165`,H.opptGmPlay:A.SRS,off1:H.Win))
+#7379x206
+dfx <- homef2 %>%
+  select(c(gmID,season,H.Team,A.Team,H.PTS:A.FF4D))
+tryx<- dfx %>%
+  pivot_longer(!c(gmID,season), names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  group_by(Team,season) %>%  
+  mutate(across(.cols = c(PTS,AST,TO,STL,BLK,OREB,DREB,TREB,PF,
+                          FGA,FGM,`FG%`,`2PA`,`2PM`,`2P%`,`3PA`,`3PM`,`3P%`,`FTA`,`FTM`,`FT%`,
+                          PTS1,PTS2,PTS3,PTS4,PTS5,PTS6,PTS7,PTS8,
+                          TSA,`TS%`,`FGMAST%`,FTR,PPS,
+                          `TREB%`,TOR,BLKR1,BLKR2,ASTR,`AST/TO`,`STL/TO`,
+                          `PLAY%`,`FLOOR%`,`POWER%`,POSS,PACE,FIC,`FIC48`,VIR,
+                          ORtg,DRtg,eDIFF,VBPdiff,
+                          `FF1O`,`FF1D`,`FF2O`,`FF2D`,`FF3O`,`FF3D`,`FF4O`,`FF4D`), 
+                ~ mean_run(x = ., k = 7, lag = 1), 
+                .names = '{.col}.av')) %>% 
+  pivot_wider(id_cols = c(gmID,season), 
+              names_from = where, 
+              names_glue = "{where}.{.value}", 
+              values_from = -c(gmID,season, where)) %>% 
+  select(!c(H.PTS:A.FF4D))
+ewa <- function(x, out, rho) {
+  if (missing(out)) {
+    n <- length(x)
+    w <-  rho^((n-1):0)
+    out <- sum(x * w) / sum(w) 
+  } 
+  else {
+    out <- rho * out + (1-rho)*x
+  }
+  return(out)
+}
+splitter <- function(x) {
+  n <- length(x)
+  z <- NULL
+  z[[1]] <- NA
+  for(i in 2:n-1) {
+    z[[i+1]] <- x[1:i]
+  }
+  z
+}
+tryx1<- dfx %>%
+  pivot_longer(!c(gmID,season), names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>% 
+  group_by(Team,season) %>%
+  mutate(across(.cols = c(PTS,AST,TO,STL,BLK,OREB,DREB,TREB,PF,
+                          FGA,FGM,`FG%`,`2PA`,`2PM`,`2P%`,`3PA`,`3PM`,`3P%`,`FTA`,`FTM`,`FT%`,
+                          PTS1,PTS2,PTS3,PTS4,PTS5,PTS6,PTS7,PTS8,
+                          TSA,`TS%`,`FGMAST%`,FTR,PPS,
+                          `TREB%`,TOR,BLKR1,BLKR2,ASTR,`AST/TO`,`STL/TO`,
+                          `PLAY%`,`FLOOR%`,`POWER%`,POSS,PACE,FIC,`FIC48`,VIR,
+                          ORtg,DRtg,eDIFF,VBPdiff,
+                          `FF1O`,`FF1D`,`FF2O`,`FF2D`,`FF3O`,`FF3D`,`FF4O`,`FF4D`), 
+                ~ sapply(splitter(.),ewa, rho = 0.75), 
+                .names = '{.col}.ewa')) %>% 
+  pivot_wider(id_cols = c(gmID,season), 
+              names_from = where, 
+              names_glue = "{where}.{.value}", 
+              values_from = -c(gmID,season, where)) %>%
+  select(!c(H.PTS:A.FF4D))
+str(tryx,list.len=126)
+str(tryx1,list.len=126)
+pace<- dfx %>%
+  pivot_longer(!c(gmID,season), names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(Team == "ATL") %>%
+  select(gmID,season,Team,PACE)
+pace1<-pace$PACE[1:82]
+paceav <- tryx %>%
+  select(H.Team,A.Team,H.PACE.av,A.PACE.av) %>%
+  rename(H.PACEav=H.PACE.av, A.PACEav=A.PACE.av) %>%
+  pivot_longer(!season, names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(Team == "ATL")
+pace2<-paceav$PACEav[1:82]
+paceewa <- tryx1 %>%
+  select(H.Team,A.Team,H.PACE.ewa,A.PACE.ewa) %>%
+  rename(H.PACEewa=H.PACE.ewa, A.PACEewa=A.PACE.ewa) %>%
+  pivot_longer(!season, names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(Team == "ATL")
+pace3<-paceewa$PACEewa[1:82]
+Game<-1:82 
+pacex<- bind_cols(Game,pace1,pace2,pace3)
+colnames(pacex)<- c("Game","PACE","SMA","EWA")
+paceplot<- ggplot(pacex, aes(y=PACE,x=Game)) +
+  geom_point() +
+  geom_line(aes(y=SMA,color="SMA")) + 
+  geom_line(aes(y=EWA,color="EWA")) +
+  scale_color_manual(values = c("red","blue"))
+paceplot + theme(legend.title = element_blank()) +
+  labs(title="Atlanta Hawks Pace over 2012/13 season") +
+  theme(plot.title = element_text(hjust = 0.5))
+gox<-homef2 %>%
+  select(!c(H.Conf:A.FF4D,H.rank,A.rank,H.gmBack,A.gmBack,H.DayOff,A.DayOff,H.opptGmPlay:H.Win))
+gox1<- gox %>% 
+  pivot_longer(!c(gmID,season,gmDate), names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%  
+  group_by(Team,season) %>%
+  mutate(across(.cols = !c(gmID,gmDate,where) ,
+                ~ lag(x=.),
+                .names = "{.col}.bef")) %>%
+  pivot_wider(id_cols = c(gmID,season,gmDate), 
+              names_from = where, 
+              names_glue = "{where}.{.value}", 
+              values_from = -c(gmID,season,gmDate,where)) %>%
+  select(!c(H.gmPlay:A.wpyth165))
+gof <- bind_cols(gox1,homef2[c("H.DayOff","A.DayOff")]) %>% 
+  relocate(c(H.DayOff,A.DayOff),.before = H.lastFive.bef)
+log5<- bind_cols(gof,hcadata[c("HCA","avHCA.app","avHCA.est")])
+log51 <- log5 %>%
+  mutate(H.log5fpyth1391 = (`H.pyth1391%.bef`*(1-`A.pyth1391%.bef`)*HCA)/(`H.pyth1391%.bef`*(1-`A.pyth1391%.bef`)*HCA+(1-`H.pyth1391%.bef`)*`A.pyth1391%.bef`*(1-HCA)),
+         H.log5fpyth165 = (`H.pyth165%.bef`*(1-`A.pyth165%.bef`)*HCA)/(`H.pyth165%.bef`*(1-`A.pyth165%.bef`)*HCA+(1-`H.pyth165%.bef`)*`A.pyth165%.bef`*(1-HCA))) %>% 
+  select(gmID,season,H.Team,A.Team,H.log5fpyth1391)
+gof1 <- bind_cols(gof,log51[,-c(1:2)])
+win.probs<- function(h.rbef, a.rbef, hca=64) {
+  h = 10^(h.rbef/400)
+  a = 10^(a.rbef/400)
+  hca = 10^(hca/400)
+  den = a + hca*h
+  h.prob = hca*h / den
+  a.prob = a / den
+  return(c(h.prob,a.prob))
+}
+rat.k<- function(h.pts,a.pts,h.rbef,a.rbef) {
+  ifelse((h.pts-a.pts)>0,20*(h.pts-a.pts+3)^0.8/(7.5+0.006*(h.rbef-a.rbef)),20*(-(h.pts-a.pts)+3)^0.8/(7.5+0.006*(-(h.rbef-a.rbef))))
+}
+up.rat<- function(h.pts, a.pts, h.rbef, a.rbef, hca=64) { 
+  h.prob = win.probs(h.rbef, a.rbef, hca)[1]
+  a.prob = win.probs(h.rbef, a.rbef, hca)[2]
+  h.win = ifelse(h.pts-a.pts>0,1,0)
+  a.win = ifelse(h.pts-a.pts<0,1,0)
+  k = rat.k(h.pts,a.pts,h.rbef,a.rbef)  
+  h.raft = h.rbef + k * (h.win - h.prob) 
+  a.raft = a.rbef + k * (a.win - a.prob) 
+  return(c(h.rbef,a.rbef,h.raft,a.raft))
+}
+data<- homef2 %>%
+  filter(season=="2012-2013") %>%
+  select(gmID,H.Team,A.Team,H.PTS,A.PTS)
+colnames(data)<- c("gmID","h.team","a.team","h.pts","a.pts")
+f <- function(dat, start_val) {
+  dat[c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- start_val
+  for(i in seq_len(nrow(data))) {
+    if(i == 1) {
+      h.rbef <- dat$h.rbef[1]
+      a.rbef <- dat$a.rbef[1]
+    } else {
+      hh.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% h.team[i]), 1))
+      ha.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% h.team[i]), 1))  
+      aa.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% a.team[i]), 1))
+      ah.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% a.team[i]), 1))
+      if(length(hh.ind) > 0 & length(ha.ind) > 0 ) {
+        ix <- which.max(c(hh.ind, ha.ind))
+        mx <- max(hh.ind, ha.ind)
+        if(ix == 1) {
+          h.rbef <- dat$h.raft[mx]
+        } else {
+          h.rbef <- dat$a.raft[mx]        
+        } 
+      } else {
+        if(length(hh.ind) > 0) {
+          h.rbef <- dat$h.raft[hh.ind]
+        }   else if(length(ha.ind) > 0) {
+          h.rbef <- dat$a.raft[ha.ind]
+        } else {
+          h.rbef <- dat$h.rbef[i]
+        }
+      }
+      if(length(aa.ind) > 0 & length(ah.ind) > 0 ) {
+        iy <- which.max(c(aa.ind, ah.ind))
+        my <- max(aa.ind, ah.ind)
+        if(iy == 1) {
+          a.rbef <- dat$a.raft[my]
+        } else {
+          a.rbef <- dat$h.raft[my]
+        }
+      } else {
+        if(length(aa.ind) > 0) {
+          a.rbef <- dat$a.raft[aa.ind]
+        }   else if(length(ah.ind) > 0) {
+          a.rbef <- dat$h.raft[ah.ind]
+        } else {
+          a.rbef <- dat$a.rbef[i]
+        }
+      }
+    }    
+    tmp <- up.rat(dat$h.pts[i], dat$a.pts[i], h.rbef, a.rbef)
+    dat[i, c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- tmp
+  }
+  return(dat)
+}
+out <- f(data, 1500)
+outx <- out %>%
+  mutate(h.gmplay=homef2[1:1229,"H.gmPlay"], a.gmplay=homef2[1:1229,"A.gmPlay"]) %>%
+  pivot_longer(!gmID, names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(gmplay==82 | (gmplay==81 & (team=="BOS" | team=="IND"))) %>%
+  select(team,raft) %>%
+  mutate(rnew=(0.75*raft)+(0.25*1505)) %>%
+  arrange(team) 
+data1<- homef2 %>%
+  filter(season=="2013-2014") %>%
+  select(gmID,H.Team,A.Team,H.PTS,A.PTS)
+colnames(data1)<- c("gmID","h.team","a.team","h.pts","a.pts")
+f1 <- function(dat) {
+  dat[c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- c(c(1548.923,1672.284,1542.517,1384.287,1456.334,1486.158,1415.544,1581.633,1549.372,1470.764,1432.005,1520.819,1558.303,1517.832,1390.525,1440.034,1540.678,rep(0,1213)),
+                                                      c(1328.480,1496.716,1593.062,1552.699,0,1475.168,1467.238,1451.782,1377.823,0,0,1484.771,1593.772,1645.356,1427.869,1634.753,rep(0,1214)),
+                                                      rep(0,1230),
+                                                      rep(0,1230))
+  for(i in seq_len(nrow(data1))) {
+    if(i == 1) {
+      h.rbef <- dat$h.rbef[1]
+      a.rbef <- dat$a.rbef[1]
+    } else {
+      hh.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% h.team[i]), 1))
+      ha.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% h.team[i]), 1))  
+      aa.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% a.team[i]), 1))
+      ah.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% a.team[i]), 1))
+      if(length(hh.ind) > 0 & length(ha.ind) > 0 ) {
+        ix <- which.max(c(hh.ind, ha.ind))
+        mx <- max(hh.ind, ha.ind)
+        if(ix == 1) {
+          h.rbef <- dat$h.raft[mx] 
+        } else {
+          h.rbef <- dat$a.raft[mx]
+        }
+      } else {
+        if(length(hh.ind) > 0) {
+          h.rbef <- dat$h.raft[hh.ind]
+        }   else if(length(ha.ind) > 0) {
+          h.rbef <- dat$a.raft[ha.ind]
+        } else {
+          h.rbef <- dat$h.rbef[i]
+        }
+      }
+      if(length(aa.ind) > 0 & length(ah.ind) > 0 ) {
+        iy <- which.max(c(aa.ind, ah.ind))
+        my <- max(aa.ind, ah.ind)
+        if(iy == 1) {
+          a.rbef <- dat$a.raft[my]
+        } else {
+          a.rbef <- dat$h.raft[my]
+        }
+      } else {
+        if(length(aa.ind) > 0) {
+          a.rbef <- dat$a.raft[aa.ind]
+        }   else if(length(ah.ind) > 0) {
+          a.rbef <- dat$h.raft[ah.ind]
+        } else {
+          a.rbef <- dat$a.rbef[i]
+        }
+      }
+    }    
+    tmp <- up.rat(dat$h.pts[i], dat$a.pts[i], h.rbef, a.rbef)
+    dat[i, c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- tmp
+  }
+  return(dat)
+}
+out1<-f1(data1)
+out1x <- out1 %>%
+  mutate(h.gmplay=homef2[1230:2459,"H.gmPlay"], a.gmplay=homef2[1230:2459,"A.gmPlay"]) %>%
+  pivot_longer(!gmID, names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(gmplay==82) %>%
+  select(team,raft) %>%
+  mutate(rnew=(0.75*raft)+(0.25*1505)) %>%
+  arrange(team)
+data2<- homef2 %>%
+  filter(season=="2014-2015") %>%
+  select(gmID,H.Team,A.Team,H.PTS,A.PTS)
+colnames(data2)<- c("gmID","h.team","a.team","h.pts","a.pts")
+f2 <- function(dat) {
+  dat[c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- c(c(1458.560,1632.710,1424.598,1539.673,1517.750,1380.604,1551.594,1563.430,1585.227,1530.920,1474.013,1374.031,1554.019,1433.018,1570.623,0,0,1466.766,0,1632.614,rep(0,1210)),
+                                                      c(1369.679,1576.756,1593.702,1324.606,1320.614,1506.088,1539.077,1484.232,1515.292,1567.574,1387.357,0,0,1587.851,1602.649,0,0,0,0,0,rep(0,1210)),
+                                                      rep(0,1230),
+                                                      rep(0,1230))
+  for(i in seq_len(nrow(data2))) {
+    if(i == 1) {
+      h.rbef <- dat$h.rbef[1]
+      a.rbef <- dat$a.rbef[1]
+    } else {
+      hh.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% h.team[i]), 1))
+      ha.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% h.team[i]), 1))  
+      aa.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% a.team[i]), 1))
+      ah.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% a.team[i]), 1))
+      if(length(hh.ind) > 0 & length(ha.ind) > 0 ) {
+        ix <- which.max(c(hh.ind, ha.ind))
+        mx <- max(hh.ind, ha.ind)
+        if(ix == 1) {
+          h.rbef <- dat$h.raft[mx] 
+        } else {
+          h.rbef <- dat$a.raft[mx] 
+        }
+      } else {
+        if(length(hh.ind) > 0) {
+          h.rbef <- dat$h.raft[hh.ind]
+        }   else if(length(ha.ind) > 0) {
+          h.rbef <- dat$a.raft[ha.ind]
+        } else {
+          h.rbef <- dat$h.rbef[i]
+        }
+      }
+      if(length(aa.ind) > 0 & length(ah.ind) > 0 ) {
+        iy <- which.max(c(aa.ind, ah.ind))
+        my <- max(aa.ind, ah.ind)
+        if(iy == 1) {
+          a.rbef <- dat$a.raft[my]
+        } else {
+          a.rbef <- dat$h.raft[my]
+        }
+      } else {
+        if(length(aa.ind) > 0) {
+          a.rbef <- dat$a.raft[aa.ind]
+        }   else if(length(ah.ind) > 0) {
+          a.rbef <- dat$h.raft[ah.ind]
+        } else {
+          a.rbef <- dat$a.rbef[i]
+        }
+      }
+    }    
+    tmp <- up.rat(dat$h.pts[i], dat$a.pts[i], h.rbef, a.rbef)
+    dat[i, c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- tmp
+  }
+  return(dat)
+}
+out2<-f2(data2) 
+out2x <- out2 %>%
+  mutate(h.gmplay=homef2[2460:3689,"H.gmPlay"], a.gmplay=homef2[2460:3689,"A.gmPlay"]) %>%
+  pivot_longer(!gmID, names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(gmplay==82) %>%
+  select(team,raft) %>%
+  mutate(rnew=(0.75*raft)+(0.25*1505)) %>%
+  arrange(team)
+data3<- homef2 %>%
+  filter(season=="2015-2016") %>%
+  select(gmID,H.Team,A.Team,H.PTS,A.PTS)
+colnames(data3)<- c("gmID","h.team","a.team","h.pts","a.pts")
+f3 <- function(dat) {
+  dat[c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- c(c(1567.198,1559.195,1691.678,1368.236,1539.149,1479.132,0,1468.467,1531.336,1600.170,1565.929,1481.206,1559.170,1472.214,1550.274,1436.911,1346.164,rep(0,1213)),
+                                                      c(1473.794,1588.697,1529.133,1500.061,1340.993,0,1541.805,1425.212,1510.121,1449.364,0,1324.507,1665.147,1548.188,0,1641.835,1331.433,rep(0,1213)),
+                                                      rep(0,1230),
+                                                      rep(0,1230))
+  for(i in seq_len(nrow(data3))) {
+    if(i == 1) {
+      h.rbef <- dat$h.rbef[1]
+      a.rbef <- dat$a.rbef[1]
+    } else {
+      hh.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% h.team[i]), 1))
+      ha.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% h.team[i]), 1))  
+      aa.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% a.team[i]), 1))
+      ah.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% a.team[i]), 1))
+      if(length(hh.ind) > 0 & length(ha.ind) > 0 ) {
+        ix <- which.max(c(hh.ind, ha.ind))
+        mx <- max(hh.ind, ha.ind)
+        if(ix == 1) {
+          h.rbef <- dat$h.raft[mx]  
+        } else {
+          h.rbef <- dat$a.raft[mx] 
+        }
+      } else {
+        if(length(hh.ind) > 0) {
+          h.rbef <- dat$h.raft[hh.ind]
+        }   else if(length(ha.ind) > 0) {
+          h.rbef <- dat$a.raft[ha.ind]
+        } else {
+          h.rbef <- dat$h.rbef[i]
+        }
+      }
+      if(length(aa.ind) > 0 & length(ah.ind) > 0 ) {
+        iy <- which.max(c(aa.ind, ah.ind))
+        my <- max(aa.ind, ah.ind)
+        if(iy == 1) {
+          a.rbef <- dat$a.raft[my] 
+        } else {
+          a.rbef <- dat$h.raft[my]
+        }
+      } else {
+        if(length(aa.ind) > 0) {
+          a.rbef <- dat$a.raft[aa.ind]   
+        }   else if(length(ah.ind) > 0) {  
+          a.rbef <- dat$h.raft[ah.ind]    
+        } else {     
+          a.rbef <- dat$a.rbef[i]
+        }
+      }
+    }      
+    tmp <- up.rat(dat$h.pts[i], dat$a.pts[i], h.rbef, a.rbef)
+    dat[i, c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- tmp
+  }
+  return(dat)
+}
+out3<-f3(data3) 
+out3x <- out3 %>%
+  mutate(h.gmplay=homef2[3690:4919,"H.gmPlay"], a.gmplay=homef2[3690:4919,"A.gmPlay"]) %>%
+  pivot_longer(!gmID, names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(gmplay==82) %>%
+  select(team,raft) %>%
+  mutate(rnew=(0.75*raft)+(0.25*1505)) %>%
+  arrange(team)
+data4<- homef2 %>%
+  filter(season=="2016-2017") %>%
+  select(gmID,H.Team,A.Team,H.PTS,A.PTS)
+colnames(data4)<- c("gmID","h.team","a.team","h.pts","a.pts")
+f4 <- function(dat) {
+  dat[c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- c(c(1597.709,1562.558,1702.556,1519.026,1455.391,1555.889,1598.079,1460.336,1427.460,1407.972,1290.933,1391.619,1344.231,1576.369,1460.393,0,rep(0,1214)),
+                                                      c(1419.131,1562.558,1686.609,1520.687,1555.322,1347.632,1512.996,1437.162,1560.200,1449.327,1630.228,1445.796,1538.536,1525.022,0,1594.839,rep(0,1214)),
+                                                      rep(0,1230),
+                                                      rep(0,1230))
+  for(i in seq_len(nrow(data4))) {
+    if(i == 1) {
+      h.rbef <- dat$h.rbef[1]
+      a.rbef <- dat$a.rbef[1] 
+    } else {  
+      hh.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% h.team[i]), 1))
+      ha.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% h.team[i]), 1))      
+      aa.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% a.team[i]), 1))
+      ah.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% a.team[i]), 1))    
+      if(length(hh.ind) > 0 & length(ha.ind) > 0 ) {
+        ix <- which.max(c(hh.ind, ha.ind))
+        mx <- max(hh.ind, ha.ind)
+        if(ix == 1) {
+          h.rbef <- dat$h.raft[mx]     
+        } else {
+          h.rbef <- dat$a.raft[mx]     
+        }   
+      } else {     
+        if(length(hh.ind) > 0) {    
+          h.rbef <- dat$h.raft[hh.ind]    
+        }   else if(length(ha.ind) > 0) {     
+          h.rbef <- dat$a.raft[ha.ind]     
+        } else {     
+          h.rbef <- dat$h.rbef[i]
+        }
+      }  
+      if(length(aa.ind) > 0 & length(ah.ind) > 0 ) {
+        iy <- which.max(c(aa.ind, ah.ind))
+        my <- max(aa.ind, ah.ind)
+        if(iy == 1) {
+          a.rbef <- dat$a.raft[my]        
+        } else {
+          a.rbef <- dat$h.raft[my]   
+        }
+      } else {  
+        if(length(aa.ind) > 0) {     
+          a.rbef <- dat$a.raft[aa.ind]      
+        }   else if(length(ah.ind) > 0) {    
+          a.rbef <- dat$h.raft[ah.ind]     
+        } else {      
+          a.rbef <- dat$a.rbef[i]
+        }
+      }  
+    }    
+    tmp <- up.rat(dat$h.pts[i], dat$a.pts[i], h.rbef, a.rbef)
+    dat[i, c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- tmp
+  }
+  return(dat)
+}
+out4<-f4(data4) 
+out4x <- out4 %>%
+  mutate(h.gmplay=homef2[4920:6149,"H.gmPlay"], a.gmplay=homef2[4920:6149,"A.gmPlay"]) %>%
+  pivot_longer(!gmID, names_to = c("where", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  filter(gmplay==82) %>%
+  select(team,raft) %>%
+  mutate(rnew=(0.75*raft)+(0.25*1505)) %>%
+  arrange(team)
+data5<- homef2 %>%
+  filter(season=="2017-2018") %>%
+  select(gmID,H.Team,A.Team,H.PTS,A.PTS)
+colnames(data5)<- c("gmID","h.team","a.team","h.pts","a.pts")
+f5 <- function(dat) {
+  dat[c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- c(c(1526.251,1695.924,1450.533,1523.485,1394.787,1559.452,0,1492.868,1442.343,1584.370,1621.253,1388.493,1428.764,1572.828,1529.969,1405.824,rep(0,1214)),
+                                                      c(1564.782,1572.691,1473.874,1404.187,1554.556,1387.330,1498.695,1492.134,1485.278,1543.257,1471.024,1547.525,0,1516.125,1410.496,1600.828,rep(0,1214)),
+                                                      rep(0,1230),
+                                                      rep(0,1230))
+  for(i in seq_len(nrow(data5))) { 
+    if(i == 1) {   
+      h.rbef <- dat$h.rbef[1]
+      a.rbef <- dat$a.rbef[1]    
+    } else {    
+      hh.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% h.team[i]), 1))
+      ha.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% h.team[i]), 1))       
+      aa.ind <- with(dat, tail(which(a.team[seq_len(i-1)] %in% a.team[i]), 1))
+      ah.ind <- with(dat, tail(which(h.team[seq_len(i-1)] %in% a.team[i]), 1))  
+      if(length(hh.ind) > 0 & length(ha.ind) > 0 ) {
+        ix <- which.max(c(hh.ind, ha.ind))
+        mx <- max(hh.ind, ha.ind)
+        if(ix == 1) {
+          h.rbef <- dat$h.raft[mx]      
+        } else {
+          h.rbef <- dat$a.raft[mx]       
+        }    
+      } else {    
+        if(length(hh.ind) > 0) {       
+          h.rbef <- dat$h.raft[hh.ind]         
+        }   else if(length(ha.ind) > 0) {       
+          h.rbef <- dat$a.raft[ha.ind]        
+        } else {      
+          h.rbef <- dat$h.rbef[i]
+        }
+      }   
+      if(length(aa.ind) > 0 & length(ah.ind) > 0 ) {
+        iy <- which.max(c(aa.ind, ah.ind))
+        my <- max(aa.ind, ah.ind)
+        if(iy == 1) {
+          a.rbef <- dat$a.raft[my]   
+        } else {
+          a.rbef <- dat$h.raft[my]       
+        }    
+      } else {  
+        if(length(aa.ind) > 0) {    
+          a.rbef <- dat$a.raft[aa.ind]   
+        }   else if(length(ah.ind) > 0) {     
+          a.rbef <- dat$h.raft[ah.ind]   
+        } else {     
+          a.rbef <- dat$a.rbef[i]
+        }
+      }
+    }    
+    tmp <- up.rat(dat$h.pts[i], dat$a.pts[i], h.rbef, a.rbef)
+    dat[i, c("h.rbef", "a.rbef", "h.raft", "a.raft")] <- tmp
+  }
+  return(dat)
+}
+out5<-f5(data5) 
+elo<-bind_rows(out,out1,out2,out3,out4,out5)
+save(elo,file="elofinal.Rdata")
+load("elofinal.Rdata")
+h.elobef<-elo$h.rbef
+a.elobef<-elo$a.rbef
+elodata <- data.frame(H.elobefore=h.elobef,A.elobefore=a.elobef)
+H.team<-elo$h.team
+A.team<-elo$a.team
+gmdate<-homef2$gmDate
+season<-homef2$season
+H.conf<-homef2$H.Conf
+A.conf<-homef2$A.Conf
+H.div<-homef2$H.Div
+A.div<-homef2$A.Div
+eloplot<- data.frame(gmDate=gmdate, season=season,
+                     H.Conf=H.conf, A.Conf=A.conf,
+                     H.Div=factor(H.div,levels = c("Atlantic","Central","Southeast","Northwest","Pacific","Southwest")), A.Div=factor(A.div,levels = c("Atlantic","Central","Southeast","Northwest","Pacific","Southwest")),
+                     H.Team=H.team, A.Team=A.team,
+                     H.elo=h.elobef, A.elo=a.elobef)
+eloplot1<- eloplot %>%
+  pivot_longer(!c(gmDate,season), names_to = c("location", ".value"),names_pattern = "(.+)\\.(.+)") %>%
+  group_by(season,Div) %>%
+  mutate(avelo = mean(elo))
+eloplots<- eloplot1 %>%
+  group_by(Team) %>%
+  summarise(mean=mean(elo))
+eloplots1 <- eloplot1 %>%
+  filter(season=="2015-2016") %>%
+  group_by(Team) %>%
+  summarise(elomean=mean(elo))
+elomean1516<-eloplots1$elomean
+eloa <- ggplot(subset(eloplot1,Div=="Atlantic"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team)) +
+  geom_line(data=subset(eloplot1,Div=="Atlantic"), aes(y=avelo, linetype = "seas. av.")) +
+  labs(y="Elo Rating") +
+  theme(legend.title = element_blank())
+eloa + scale_color_brewer(palette="Set1") +
+  labs(title="Atlantic Division") +
+  theme(plot.title = element_text(hjust = 0.5))
+eloc <- ggplot(subset(eloplot1,Div=="Central"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team)) +
+  geom_line(data=subset(eloplot1,Div=="Central"), aes(y=avelo, linetype = "seas. av.")) +
+  labs(y="Elo Rating") +
+  theme(legend.title = element_blank())
+eloc + scale_color_brewer(palette="Set1") +
+  labs(title="Central Division") +
+  theme(plot.title = element_text(hjust = 0.5))
+elose <- ggplot(subset(eloplot1,Div=="Southeast"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team)) +
+  geom_line(data=subset(eloplot1,Div=="Southeast"), aes(y=avelo, linetype = "seas. av.")) +
+  labs(y="Elo Rating") +
+  theme(legend.title = element_blank())
+elose + scale_color_brewer(palette="Set1") +
+  labs(title="Southeast Division") +
+  theme(plot.title = element_text(hjust = 0.5))
+elon <- ggplot(subset(eloplot1,Div=="Northwest"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team)) +
+  geom_line(data=subset(eloplot1,Div=="Northwest"), aes(y=avelo, linetype = "seas. av.")) +
+  labs(y="Elo Rating") +
+  theme(legend.title = element_blank())
+elon + scale_color_brewer(palette="Set1") +
+  labs(title="Northwest Division") +
+  theme(plot.title = element_text(hjust = 0.5))
+elop <- ggplot(subset(eloplot1,Div=="Pacific"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team)) +
+  geom_line(data=subset(eloplot1,Div=="Pacific"), aes(y=avelo, linetype = "seas. av,")) +
+  labs(y="Elo Rating") +
+  theme(legend.title = element_blank()) +
+  guides(color = guide_legend(order = 1),
+         linetype = guide_legend(order = 2))
+elop + scale_color_brewer(palette="Set1") +
+  labs(title="Pacific Division") +
+  theme(plot.title = element_text(hjust = 0.5))
+elosw <- ggplot(subset(eloplot1,Div=="Southwest"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team)) +
+  geom_line(data=subset(eloplot1,Div=="Southwest"), aes(y=avelo, linetype = "seas. av.")) +
+  labs(y="Elo Rating") +
+  theme(legend.title = element_blank())
+elosw + scale_color_brewer(palette="Set1") +
+  labs(title="Southwest Division") +
+  theme(plot.title = element_text(hjust = 0.5))
+elodiv <- ggplot(eloplot1, aes(x=gmDate, y=avelo)) + 
+  geom_line(aes(color = Div, linetype=Conf),size=1) +
+  scale_color_manual(values = c("blue3","cyan2","lightblue3","red4","orangered1","darksalmon")) +
+  labs(y="Seasonal Average Elo Rating")
+elodiv
+elodiv + labs(title="Divisions' Elo over seasons") +
+  theme(plot.title = element_text(hjust = 0.5))
+elo6 <- ggplot(subset(eloplot1, Team=="TOR"|Team=="IND"|Team=="MIA"|Team=="OKC"|Team=="GS"|Team=="SA"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team,linetype=Conf)) +
+  labs(y="Elo Rating")
+elo6 <- ggplot(subset(eloplot1, Team=="TOR"|Team=="IND"|Team=="MIA"|Team=="OKC"|Team=="GS"|Team=="SA"), aes(x=gmDate, y=elo)) +
+  geom_line(aes(color = Team)) +
+  scale_color_manual(values = c("orangered1","cyan2","lightblue3","red3","darksalmon","blue3")) +
+  labs(y="Elo Rating")
+elo6 + labs(title="Best Divisions' teams over seasons") +
+  theme(plot.title = element_text(hjust = 0.5))
+elod <- ggplot(eloplot1, aes(x=elo, fill=Div)) +
+  geom_density() +
+  facet_wrap(~ Div) +
+  scale_fill_manual(values = c("blue3","cyan2","lightblue1","red4","orangered1","darksalmon")) +
+  labs(x="Elo Rating",y="Density") +
+  theme(legend.position = "none")
+elod + labs(title="Elo densities by Division") +
+  theme(plot.title = element_text(hjust = 0.5))
+elos <- ggplot(eloplot1, aes(x=elo, fill=season)) +
+  geom_density() +
+  facet_wrap(~ season) +
+  labs(x="Elo Rating",y="Density") +
+  theme(legend.position = "none")
+elos + labs(title="Elo densities by season") +
+  theme(plot.title = element_text(hjust = 0.5))
+elodata1<- bind_cols(homef2[c("H.Team","A.Team")],elodata,gof[c("H.W/L%.bef","A.W/L%.bef")],homef2["H.Win"])
+elodata11<- elodata1 %>%
+  mutate(H.elodiff=H.elobefore-A.elobefore,
+         `H.W/Ldiff`=`H.W/L%.bef`-`A.W/L%.bef`) %>%
+  mutate(H.greaterelo=factor(ifelse(H.elodiff<0,0,1)),
+         H.greaterwl=factor(ifelse(`H.W/Ldiff`<0,0,1))) %>%
+  filter(H.elodiff!=0 & !is.na(`H.W/Ldiff`) & `H.W/Ldiff`!=0 & `H.W/Ldiff`!=1 & `H.W/Ldiff`!=-1)
+elopie <- ggplot(tempdataelo, aes(x="", y=value, fill=Prediction)) +
+  geom_bar(stat="identity", width=1) +
+  scale_fill_manual(values = c("green2","red2")) +
+  coord_polar("y", start=0) +
+  theme_void() 
+elopie + labs(title="Elo differential vs game result") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+wlpie <- ggplot(tempdatawl, aes(x="", y=value, fill=Prediction)) +
+  geom_bar(stat="identity", width=1) +
+  scale_fill_manual(values = c("green2","red2")) +
+  coord_polar("y", start=0) +
+  theme_void() 
+wlpie + labs(title="W/L% differential vs game result") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+ggplot(tempdata)+
+  geom_text(aes(x="",y="",label="64.91%")) +
+  theme_void() +
+  theme(panel.background = element_rect(fill = "green2"))
+ggplot(tempdata)+
+  geom_text(aes(x="",y="",label="35.09%")) +
+  theme_void() +
+  theme(panel.background = element_rect(fill = "red2"))
+r3<-bind_cols(homef2[,c("gmDate","H.Conf","A.Conf","H.Div","A.Div","off1","off2","off3","H.Win")],tryx,tryx1[,-(1:4)],gof1[,-(1:5)],elodata) %>%
+  select(c(gmID,season,gmDate,H.Team,A.Team,H.Conf:A.Div,H.PTS.av:A.FF4D.av,H.PTS.ewa:A.FF4D.ewa,H.gmPlay.bef:H.log5epyth165,H.elobefore,A.elobefore,off1:off3,H.Win))
+str(r3,list.len=311)
+w3<-which(is.na(r3),arr.ind=TRUE)
+badrows3<-sort(unique(w3[,1]))
+r31<-r3[-badrows3,] 
+which(is.na(r31))
+nzv3 <- nearZeroVar(r31, saveMetrics= TRUE) 
+nzvind3 <- nearZeroVar(r31)  
+r31nzv <- r31[,-nzvind3] 
+r31x <- r31nzv %>%
+  select(where(is.numeric)) %>%
+  select(!gmID)
+combo3 <- findLinearCombos(r31x)
+combo3
+r31combo <- r31nzv %>%
+  select(!c(H.TREB.av,A.TREB.av,H.3PA.av,A.3PA.av,H.3PM.av,A.3PM.av,H.TSA.av,A.TSA.av,H.FIC.av,A.FIC.av,H.eDIFF.av,A.eDIFF.av,H.PPS.av,A.PPS.av,
+            H.TREB.ewa,A.TREB.ewa,H.3PA.ewa,A.3PA.ewa,H.3PM.ewa,A.3PM.ewa,H.TSA.ewa,A.TSA.ewa,H.FIC.ewa,A.FIC.ewa,H.eDIFF.ewa,A.eDIFF.ewa,H.PPS.ewa,A.PPS.ewa,
+            H.gmL.bef,A.gmL.bef,H.awayW.bef,A.awayW.bef,H.awayL.bef,A.awayL.bef,H.avMOV.bef,A.avMOV.bef))
+r31xx<- r31combo %>%
+  select(where(is.numeric)) %>%
+  select(!gmID)
+nocombo3 <- findLinearCombos(r31xx)
+nocombo3 #no more linear combos, correct!
+r31num<- r31combo %>%
+  select(where(is.numeric)) %>%
+  select(!gmID)
+cor3<- cor(r31num)
+highcor3 <- findCorrelation(cor3, cutoff = 0.85, names = T)
+highcor3 #161 variables
+r31cor<- r31combo %>%
+  select(!c(all_of(highcor3),H.log5epyth1391),H.log5fpyth1391)
+r3x<-r31cor %>%
+  select(!c(H.stk.bef,A.stk.bef,off1,off2,off3))
+levels(r3x$H.Win)<-c("loss","win")
+rf3<- r3x %>%
+  select(!c(gmID,gmDate))
+dum3<- dummyVars(H.Win ~ ., data = rf3, fullRank = T)
+dum31<- predict(dum3, newdata = rf3)
+rf31<- cbind(dum31,rf3["H.Win"]) 
+rf32<- rf3 %>%
+  select(c(where(is.numeric),H.Win))
+library(doParallel)
+set.seed(3333)
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+unregister_dopar <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+unregister_dopar()
+rf32<- rf32 %>% 
+  rename(A.FGp.av = `A.FG%.av`,
+         A.FTp.av = `A.FT%.av`,
+         H.TREBp.av = `H.TREB%.av`,
+         H.STL_TO.av = `H.STL/TO.av`,
+         H.FGp.ewa = `H.FG%.ewa`,
+         H.3Pp.ewa = `H.3P%.ewa`,
+         A.3Pp.ewa = `A.3P%.ewa`,
+         H.FTp.ewa = `H.FT%.ewa`,
+         H.TSp.ewa = `H.TS%.ewa`,
+         A.TSp.ewa = `A.TS%.ewa`,
+         H.FGMASTp.ewa = `H.FGMAST%.ewa`,
+         A.FGMASTp.ewa = `A.FGMAST%.ewa`,
+         A.TREBp.ewa = `A.TREB%.ewa`,
+         H.AST_TO.ewa = `H.AST/TO.ewa`,
+         A.AST_TO.ewa = `A.AST/TO.ewa`,
+         A.STL_TO.ewa = `A.STL/TO.ewa`,
+         H.POWERp.ewa = `H.POWER%.ewa`,
+         A.POWERp.ewa = `A.POWER%.ewa`,
+         H.W_Lp.bef = `H.W/L%.bef`,
+         A.W_Lp.bef = `A.W/L%.bef`)
+set.seed(333)
+trainind <- createDataPartition(rf32$H.Win, p = 0.85, 
+                                list = FALSE, 
+                                times = 1)
+train <- rf32[trainind,]
+test <- rf32[-trainind,]
+y <- train$H.Win
+length(y)
+summary(y)
+x <- train[,-88]
+str(x)
+set.seed(333)
+seeds <- vector(mode = "list", length = 31)
+for(i in 1:30) seeds[[i]] <- sample.int(1000, 500)
+seeds[[31]] <- sample.int(1000, 1)
+set.seed(333)
+seedsx <- vector(mode = "list", length = 11)
+for(i in 1:10) seedsx[[i]] <- sample.int(1000, 500)
+seedsx[[11]] <- sample.int(1000, 1)
+
+
+
+fitctrl1 <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 3,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  seeds = seeds,
+  allowParallel = T)
+weights <- ifelse(train$H.Win == "loss",
+                        table(train$H.Win)[2]/nrow(train),
+                        table(train$H.Win)[1]/nrow(train))
+start_time <- Sys.time()
+set.seed(3333)
+glmfit <- train(x = x, y = y,
+                 method = "glm",
+                 trControl = fitctrl1,
+                 preProcess=c("center","scale"),
+                 family = binomial(),
+                 metric = "ROC")
+glmfit
+total_time <- Sys.time() - start_time
+total_time 
+library(car)
+vifx<-vif(glmfit$finalModel)
+nam<-which(vifx<10)
+s<-x[,nam]
+xx<-cbind(s,x["H.log5fpyth1391"])
+testx<-cbind(test[,nam],test["H.log5fpyth1391"],test["H.Win"])
+trainx<-cbind(xx,train["H.Win"])
+start_time <- Sys.time()
+set.seed(3333)
+glmfitw <- train(x = x, y = y,
+                 method = "glm",
+                 trControl = fitctrl1,
+                 preProcess=c("center","scale"),
+                 family = binomial(),
+                 weights = weights,
+                 metric = "ROC")
+glmfitw 
+total_time <- Sys.time() - start_time
+total_time 
+start_time <- Sys.time()
+set.seed(3333)
+glmfitx <- train(x = xx, y = y,
+                method = "glm",
+                trControl = fitctrl1,
+                preProcess=c("center","scale"),
+                family = binomial(),
+                metric = "ROC")
+glmfitx #0.7152939
+total_time <- Sys.time() - start_time
+total_time #3.332862 secs
+start_time <- Sys.time()
+set.seed(3333)
+glmfitxw <- train(x = xx, y = y,
+                 method = "glm",
+                 trControl = fitctrl1,
+                 preProcess=c("center","scale"),
+                 family = binomial(),
+                 weights = weights,
+                 metric = "ROC")
+glmfitxw 
+total_time <- Sys.time() - start_time
+total_time
+library(arm)
+start_time <- Sys.time()
+set.seed(3333)
+bayglmfit <- train(x = x, y = y,
+                  method = "bayesglm",
+                  trControl = fitctrl1,
+                  preProcess=c("center","scale"),
+                  metric = "ROC")
+bayglmfit
+total_time <- Sys.time() - start_time
+total_time
+library(arm)
+start_time <- Sys.time()
+set.seed(3333)
+bayglmfitw <- train(x = x, y = y,
+                   method = "bayesglm",
+                   trControl = fitctrl1,
+                   preProcess=c("center","scale"),
+                   weights = weights,
+                   metric = "ROC")
+bayglmfitw 
+total_time <- Sys.time() - start_time
+total_time
+library(arm)
+start_time <- Sys.time()
+set.seed(3333)
+bayglmfitx <- train(x = xx, y = y,
+                   method = "bayesglm",
+                   trControl = fitctrl1,
+                   preProcess=c("center","scale"),
+                   metric = "ROC")
+bayglmfitx 
+total_time <- Sys.time() - start_time
+total_time 
+library(arm)
+start_time <- Sys.time()
+set.seed(3333)
+bayglmfitxw <- train(x = xx, y = y,
+                    method = "bayesglm",
+                    trControl = fitctrl1,
+                    preProcess=c("center","scale"),
+                    weights = weights,
+                    metric = "ROC")
+bayglmfitxw 
+total_time <- Sys.time() - start_time
+total_time 
+library(mboost)
+glmbgrid<- expand.grid(prune = "no",
+                       mstop = 400)
+start_time <- Sys.time()
+set.seed(3333)
+glmbfit <- train(x = x, y = y,
+                 method = "glmboost",
+                 preProcess = c("center","scale"),
+                 trControl = fitctrl1,
+                 tuneGrid = glmbgrid,
+                 metric = "ROC")
+glmbfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(glmbfit)
+glmbgridw<- expand.grid(prune = "no",
+                        mstop = 400)
+start_time <- Sys.time()
+set.seed(3333)
+glmbfitw <- train(x = x, y = y,
+                  method = "glmboost",
+                  preProcess = c("center","scale"),
+                  trControl = fitctrl1,
+                  tuneGrid = glmbgridw,
+                  weights = weights,
+                  metric = "ROC")
+glmbfitw 
+total_time <- Sys.time() - start_time
+total_time 
+library(mboost)
+glmbgridx<- expand.grid(prune = "no",
+                       mstop = 400)
+start_time <- Sys.time()
+set.seed(3333)
+glmbfitx <- train(x = xx, y = y,
+                 method = "glmboost",
+                 preProcess = c("center","scale"),
+                 trControl = fitctrl1,
+                 tuneGrid = glmbgridx,
+                 metric = "ROC")
+glmbfitx
+total_time <- Sys.time() - start_time
+total_time 
+library(mboost)
+glmbgridxw<- expand.grid(prune = "no",
+                        mstop = 400)
+start_time <- Sys.time()
+set.seed(3333)
+glmbfitxw <- train(x = xx, y = y,
+                  method = "glmboost",
+                  preProcess = c("center","scale"),
+                  trControl = fitctrl1,
+                  tuneGrid = glmbgridxw,
+                  weights = weights,
+                  metric = "ROC")
+glmbfitxw
+total_time <- Sys.time() - start_time
+total_time 
+library(earth)
+marsgrid <- expand.grid(degree=c(1,2,3),
+                        nprune=c(2,3,4,5,6,7,8,9))
+start_time <- Sys.time()
+set.seed(3333)
+marsfit <- train(x = x, y = y,
+                method = "earth",
+                trControl = fitctrl1,
+                preProcess=c("center","scale"),
+                tuneGrid = marsgrid,
+                metric = "ROC")
+marsfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(marsfit,main="Multivariate Adaptative Regression Splines")
+library(earth)
+marsgridx <- expand.grid(degree=c(1,2,3),
+                        nprune=c(2,3,4,5,6,7,8,9))
+start_time <- Sys.time()
+set.seed(3333)
+marsfitx <- train(x = xx, y = y,
+                 method = "earth",
+                 trControl = fitctrl1,
+                 preProcess=c("center","scale"),
+                 tuneGrid = marsgridx,
+                 metric = "ROC")
+marsfitx 
+total_time <- Sys.time() - start_time
+total_time 
+plot(marsfitx,main="Multivariate Adaptative Regression Splines with VIF<10 predictors")
+library(pls)
+start_time <- Sys.time()
+set.seed(3333)
+plsfit <- train(x = x, y = y,
+                method = "pls",
+                trControl = fitctrl1,
+                preProcess=c("center","scale"),
+                tuneLength = 15,
+                metric = "ROC")
+plsfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(plsfit, main="Partial Least Squares Regression")
+library(pls)
+start_time <- Sys.time()
+set.seed(3333)
+plsfitx <- train(x = xx, y = y,
+                method = "pls",
+                trControl = fitctrl1,
+                preProcess=c("center","scale"),
+                tuneLength = 15,
+                metric = "ROC")
+plsfitx #0.7153998 ncomp = 9
+total_time <- Sys.time() - start_time
+total_time #5.213076 secs
+plot(plsfitx, main="Partial Least Squares Regression with VIF<10 predictors")
+library(MASS)
+start_time <- Sys.time()
+set.seed(3333)
+ldafit <- train(x = x, y = y,
+                method = "lda",
+                trControl = fitctrl1,
+                metric = "ROC")
+ldafit 
+total_time <- Sys.time() - start_time
+total_time 
+library(MASS)
+start_time <- Sys.time()
+set.seed(3333)
+ldafitx <- train(x = xx, y = y,
+                method = "lda",
+                trControl = fitctrl1,
+                metric = "ROC")
+ldafitx 
+total_time <- Sys.time() - start_time
+total_time 
+library(mda)
+pdagrid<- expand.grid(lambda = seq(155000,185000,length=31))
+start_time <- Sys.time()
+set.seed(3333)
+pdafit <- train(x = x, y = y,
+                method = "pda",
+                trControl = fitctrl1,
+                tuneGrid = pdagrid,
+                metric = "ROC")
+pdafit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(pdafit,main="Penalized Discriminant Analysis")
+library(mda)
+pdagridx<- expand.grid(lambda = seq(647,3047,by=100))
+start_time <- Sys.time()
+set.seed(3333)
+pdafitx <- train(x = xx, y = y,
+                method = "pda",
+                trControl = fitctrl1,
+                tuneGrid = pdagridx,
+                metric = "ROC")
+pdafitx 
+total_time <- Sys.time() - start_time
+total_time 
+plot(pdafitx,main="Penalized Discriminant Analysis with VIF<10 predictors")
+library(mda)
+pdagridw<- expand.grid(lambda = seq(155000,185000,length=31))
+start_time <- Sys.time()
+set.seed(3333)
+pdafitw <- train(x = x, y = y,
+                method = "pda",
+                trControl = fitctrl1,
+                tuneGrid = pdagridw,
+                weights = weights,
+                metric = "ROC")
+pdafitw
+total_time <- Sys.time() - start_time
+total_time 
+plot(pdafitw,main="Penalized Discriminant Analysis with case weights")
+library(mda)
+pdagridxw<- expand.grid(lambda = seq(647,3047,by=100))
+start_time <- Sys.time()
+set.seed(3333)
+pdafitxw <- train(x = xx, y = y,
+                 method = "pda",
+                 trControl = fitctrl1,
+                 tuneGrid = pdagridxw,
+                 weights = weights,
+                 metric = "ROC")
+pdafitxw 
+total_time <- Sys.time() - start_time
+total_time 
+plot(pdafitxw,main="Penalized Discriminant Analysis with VIF<10 predictors and case weights")
+library(klaR)
+rdagrid<- expand.grid(gamma = seq(0.075,0.1,by=0.005),
+                      lambda = seq(0.85,0.95,by=0.01))
+start_time <- Sys.time()
+set.seed(3333)
+rdafit <- train(x = x, y = y,
+                method = "rda",
+                trControl = fitctrl1,
+                tuneGrid = rdagrid,
+                metric = "ROC")
+rdafit
+total_time <- Sys.time() - start_time
+total_time 
+plot(rdafit,main="Regularized Discriminant Analysis")
+library(klaR)
+rdagridx<- expand.grid(gamma = seq(0.0005,0.0015,length=11),
+                       lambda = seq(1.05,1.15,length=11))
+start_time <- Sys.time()
+set.seed(3333)
+rdafitx <- train(x = xx, y = y,
+                method = "rda",
+                trControl = fitctrl1,
+                tuneGrid = rdagridx,
+                metric = "ROC")
+rdafitx 
+total_time <- Sys.time() - start_time
+total_time 
+plot(rdafitx,main="Regularized Discriminant Analysis with VIF<10 predictors")
+library(glmnet)
+glmnetgrid<- expand.grid(alpha = seq(0.7,1,by=0.02),
+                        lambda = seq(0.008,0.011,length=7)) 
+start_time <- Sys.time()
+set.seed(3333)
+glmnetfit <- train(x = x, y = y,
+                method = "glmnet",
+                trControl = fitctrl1,
+                tuneGrid = glmnetgrid,
+                metric = "ROC")
+glmnetfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(glmnetfit,main="Glmnet")
+knngrid<- expand.grid(k = seq(299,399,by=10))
+start_time <- Sys.time()
+set.seed(3333)
+knnfit <- train(x = x, y = y,
+                 method = "knn",
+                 trControl = fitctrl1,
+                 preProcess = c("center","scale"),
+                 tuneGrid = knngrid,
+                 metric = "ROC")
+knnfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(knnfit,main="K-Nearest Neighbours")
+knngridx<- expand.grid(k = seq(356,456,by=10))
+start_time <- Sys.time()
+set.seed(3333)
+knnfitx <- train(x = xx, y = y,
+                method = "knn",
+                trControl = fitctrl1,
+                preProcess = c("center","scale"),
+                tuneGrid = knngridx,
+                metric = "ROC")
+knnfitx 
+total_time <- Sys.time() - start_time
+total_time 
+plot(knnfitx,main="K-Nearest Neighbours with VIF<10 predictors")
+pcaknngrid<- expand.grid(k = seq(399,499,by=10))
+start_time <- Sys.time()
+set.seed(3333)
+pcaknnfit <- train(x = x, y = y,
+                method = "knn",
+                trControl = fitctrl1,
+                preProcess = c("center","scale","pca"),
+                tuneGrid = pcaknngrid,
+                metric = "ROC")
+pcaknnfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(pcaknnfit,main="K-Nearest Neighbours with Principal Components Analysis")
+pcaknngridx<- expand.grid(k = seq(299,399,by=10))
+start_time <- Sys.time()
+set.seed(3333)
+pcaknnfitx <- train(x = xx, y = y,
+                   method = "knn",
+                   trControl = fitctrl1,
+                   preProcess = c("center","scale","pca"),
+                   tuneGrid = pcaknngridx,
+                   metric = "ROC")
+pcaknnfitx 
+total_time <- Sys.time() - start_time
+total_time
+plot(pcaknnfitx,main="K-Nearest Neighbours with VIF<10 predictors \n and Principal Components Analysis")
+library(rpart)
+cartgrid<- expand.grid(cp=seq(0.001,0.02,by=0.001))
+start_time <- Sys.time()
+set.seed(3333)
+cartfit <- train(x = x, y = y,
+                   method = "rpart",
+                   trControl = fitctrl1,
+                   tuneGrid = cartgrid,
+                   metric = "ROC")
+cartfit
+total_time <- Sys.time() - start_time
+total_time
+plot(cartfit,main="CART")
+cartgridw<- expand.grid(cp=seq(0.001,0.02,by=0.001))
+start_time <- Sys.time()
+set.seed(3333)
+cartfitw <- train(x = x, y = y,
+                 method = "rpart",
+                 trControl = fitctrl1,
+                 tuneGrid = cartgridw,
+                 weights = weights,
+                 metric = "ROC")
+cartfitw 
+total_time <- Sys.time() - start_time
+total_time
+plot(cartfitw,main="CART with case weights")
+library(ipred)
+library(plyr)
+library(e1071)
+start_time <- Sys.time()
+set.seed(3333)
+bcartfit <- train(x = x, y = y,
+                 method = "treebag",
+                 trControl = fitctrl1,
+                 metric = "ROC")
+bcartfit 
+total_time <- Sys.time() - start_time
+total_time 
+library(ipred)
+library(plyr)
+library(e1071)
+start_time <- Sys.time()
+set.seed(3333)
+bcartfitw <- train(x = x, y = y,
+                  method = "treebag",
+                  trControl = fitctrl1,
+                  weights = weights,
+                  metric = "ROC")
+bcartfitw 
+total_time <- Sys.time() - start_time
+total_time 
+library(party)
+ctreegrid<- expand.grid(mincriterion = seq(0.85,0.95,length=11))
+start_time <- Sys.time()
+set.seed(3333)
+ctreefit <- train(x = x, y = y,
+                  method = "ctree",
+                  trControl = fitctrl1,
+                  tuneGrid = ctreegrid,
+                  metric = "ROC")
+ctreefit 
+total_time <- Sys.time() - start_time
+total_time
+plot(ctreefit,main="Conditional Inference Tree")
+library(party)
+ctreegridw<- expand.grid(mincriterion = seq(0.9999,0.99999,length=10))
+start_time <- Sys.time()
+set.seed(3333)
+ctreefitw <- train(x = x, y = y,
+                  method = "ctree",
+                  trControl = fitctrl1,
+                  tuneGrid = ctreegridw,
+                  weights = ifelse(train$H.Win == "loss",3,2),
+                  metric = "ROC")
+ctreefitw 
+total_time <- Sys.time() - start_time
+total_time 
+plot(ctreefitw,main="Conditional Inference Tree with case weights")
+library(party)
+library(mboost)
+library(plyr)
+library(partykit)
+btreegrid<- expand.grid(mstop =50,
+                        maxdepth = 1:6)
+start_time <- Sys.time()
+set.seed(3333)
+btreefit <- train(x = x, y = y,
+                  method = "blackboost",
+                  trControl = fitctrl1,
+                  tuneGrid = btreegrid,
+                  metric = "ROC")
+btreefit 
+total_time <- Sys.time() - start_time
+total_time
+plot(btreefit,main="Boosted Tree")
+library(party)
+library(mboost)
+library(plyr)
+library(partykit)
+btreegridw<- expand.grid(mstop =50,
+                         maxdepth = 1:6)
+start_time <- Sys.time()
+set.seed(3333)
+btreefitw <- train(x = x, y = y,
+                  method = "blackboost",
+                  trControl = fitctrl1,
+                  tuneGrid = btreegridw,
+                  weights = weights,
+                  metric = "ROC")
+btreefitw 
+total_time <- Sys.time() - start_time
+total_time 
+plot(btreefitw,main="Boosted Tree with case weights")
+library(C50)
+C50grid<- expand.grid(winnow = c(TRUE,FALSE),
+                      trials = c(1:20),
+                      model= c("tree","rules"))
+start_time <- Sys.time()
+set.seed(3333)
+C50fit <- train(x = x, y = y,
+                 method = "C5.0",
+                 trControl = fitctrl1,
+                 tuneGrid = C50grid,
+                 metric = "ROC")
+C50fit 
+total_time <- Sys.time() - start_time
+total_time
+plot(C50fit,main="C5.0")
+C50gridw<- expand.grid(winnow = c(TRUE,FALSE),
+                      trials = c(1:20),
+                      model= c("tree","rules"))
+start_time <- Sys.time()
+set.seed(3333)
+C50fitw <- train(x = x, y = y,
+                method = "C5.0",
+                trControl = fitctrl1,
+                tuneGrid = C50gridw,
+                weights = weights,
+                metric = "ROC")
+C50fitw 
+total_time <- Sys.time() - start_time
+total_time 
+plot(C50fitw,main="C5.0 with case weights")
+library(nnet)
+nnetgridx <-  expand.grid(size = 1,
+                         decay = seq(0.7,1,by=0.01))
+start_time <- Sys.time()
+set.seed(3333)
+nnetfitx <- train(x = xx, y = y,
+                 method = "nnet",
+                 trControl = fitctrl1,
+                 tuneGrid = nnetgridx,
+                 preProcess = c("center","scale"),
+                 maxit = 500,
+                 metric = "ROC")
+nnetfitx
+total_time <- Sys.time() - start_time
+total_time 
+plot(nnetfitx,main="Neural Network with VIF<10 predictors")
+library(nnet)
+nnetgridxw <-  expand.grid(size = 1,
+                           decay = seq(0.01,0.31,by=0.01))
+start_time <- Sys.time()
+set.seed(3333)
+nnetfitxw <- train(x = xx, y = y,
+                 method = "nnet",
+                 trControl = fitctrl1,
+                 tuneGrid = nnetgridxw,
+                 preProcess = c("center","scale"),
+                 maxit = 500,
+                 weights = weights,
+                 metric = "ROC")
+nnetfitxw 
+total_time <- Sys.time() - start_time
+total_time 
+plot(nnetfitxw,main="Neural Network with VIF<10 predictors and case weights")
+library(kernlab)
+svmgrid<- expand.grid(C = seq(0.003,0.007,length=11))
+start_time <- Sys.time()
+set.seed(3333)
+svmfit <- train(H.Win ~., data = train,
+                 method = "svmLinear",
+                 trControl = fitctrl1,
+                 preProcess = c("center","scale"),
+                 tuneGrid = svmgrid,
+                 metric = "ROC")
+svmfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(svmfit,main="Support Vector Machines with Linear Kernel")
+library(kernlab)
+svmgridx<- expand.grid(C = seq(0.006,0.007,length=11))
+start_time <- Sys.time()
+set.seed(3333)
+svmfitx <- train(H.Win ~., data = trainx,
+                method = "svmLinear",
+                trControl = fitctrl1,
+                preProcess = c("center","scale"),
+                tuneGrid = svmgridx,
+                metric = "ROC")
+svmfitx
+total_time <- Sys.time() - start_time
+total_time
+plot(svmfitx,main="Support Vector Machines with Linear Kernel with VIF<10 predictors")
+set.seed(3333)
+sigest(H.Win ~., data = train)
+rsvmgrid<- expand.grid(sigma = c(1e-03),
+                       C = seq(0.5,3, by=0.5))
+start_time <- Sys.time()
+set.seed(3333)
+rsvmfit <- train(H.Win ~., data = train,
+                method = "svmRadial",
+                trControl = fitctrl1,
+                preProcess = c("center","scale"),
+                tuneGrid = rsvmgrid,
+                metric = "ROC")
+rsvmfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(rsvmfit,main="Support Vector Machines with Radial Basis Function Kernel")
+set.seed(3333)
+sigest(H.Win ~., data = trainx)
+rsvmgridx<- expand.grid(sigma = 1e-03,
+                        C = seq(0.5,3, by=0.5))
+start_time <- Sys.time()
+set.seed(3333)
+rsvmfitx <- train(H.Win ~., data = trainx,
+                 method = "svmRadial",
+                 trControl = fitctrl1,
+                 preProcess = c("center","scale"),
+                 tuneGrid = rsvmgridx,
+                 metric = "ROC")
+rsvmfitx 
+total_time <- Sys.time() - start_time
+total_time 
+plot(rsvmfitx,main="Support Vector Machines with Radial Basis Function Kernel \n with VIF<10 predictors")
+psvmgrid<- expand.grid(degree = 2:5,
+                       scale = 1e-05,
+                       C = seq(70,130,by=15))
+start_time <- Sys.time()
+set.seed(3333)
+psvmfit <- train(H.Win ~., data = train,
+                 method = "svmPoly",
+                 trControl = fitctrl1,
+                 preProcess = c("center","scale"),
+                 tuneGrid = psvmgrid,
+                 metric = "ROC")
+psvmfit 
+total_time <- Sys.time() - start_time
+total_time 
+plot(psvmfit,main="Support Vector Machines with Polynomial Kernel")
+psvmgridx<- expand.grid(degree = 4:5,
+                       scale = 1e-05,
+                       C = seq(50,250,by=25))
+start_time <- Sys.time()
+set.seed(3333)
+psvmfitx <- train(H.Win ~., data = trainx,
+                 method = "svmPoly",
+                 trControl = fitctrl1,
+                 preProcess = c("center","scale"),
+                 tuneGrid = psvmgridx,
+                 metric = "ROC")
+psvmfitx 
+total_time <- Sys.time() - start_time
+total_time 
+plot(psvmfitx,main="Support Vector Machines with Polynomial Kernel with VIF<10 predictors")
+library(ranger)
+library(e1071)
+rangergrid<- expand.grid(mtry = c(30:35),
+                    splitrule = "extratrees",
+                    min.node.size = seq(200,300,by=25))
+start_time <- Sys.time()
+set.seed(3333)
+rangerfit <- train(x = x, y = y,
+              method = "ranger",
+              trControl = fitctrl1,
+              tuneGrid = rangergrid,
+              metric = "ROC",
+              importance = "permutation")
+rangerfit
+total_time <- Sys.time() - start_time
+total_time
+plot(rangerfit,main="Random Forest")
+rangergridw<- expand.grid(mtry = c(30:35),
+                         splitrule = "extratrees",
+                         min.node.size = seq(200,300,by=25))
+start_time <- Sys.time()
+set.seed(3333)
+rangerfitw <- train(x = x, y = y,
+                   method = "ranger",
+                   trControl = fitctrl1,
+                   tuneGrid = rangergridw,
+                   weights = weights,
+                   metric = "ROC",
+                   importance = "permutation")
+rangerfitw 
+total_time <- Sys.time() - start_time
+total_time 
+plot(rangerfitw,main="Random Forest with case weights")
+library(xgboost)
+xgbgrid0 <- expand.grid(
+  nrounds = 100,
+  max_depth = 6,
+  eta = 0.3,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1)
+set.seed(3333)
+xgbfit0 <- train(x = x, y = y,
+  trControl = fitctrl0,
+  tuneGrid = xgbgrid0,
+  method = "xgbTree",
+  metric = "ROC",
+  verbose = TRUE)
+xgbfit0
+nrounds<-1000
+xgbgrid1 <- expand.grid(
+  nrounds = seq(from = 200, to = nrounds, by = 50),
+  eta = c(0.025, 0.05, 0.1, 0.3),
+  max_depth = c(2, 3, 4, 5, 6),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1)
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit1 <- train(x = x, y = y,
+                 method = "xgbTree",
+                 trControl = fitctrl1,
+                 tuneGrid = xgbgrid1,
+                 metric = "ROC",
+                 verbose = TRUE)
+xgbfit1 
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit1$bestTune
+plot(xgbfit1)
+xgbgrid2 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = xgbfit1$bestTune$eta,
+  max_depth = xgbfit1$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(5,25,50,150,250,300),
+  subsample = 1)
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit2 <- train(x = x, y = y,
+                 method = "xgbTree",
+                 trControl = fitctrl1,
+                 tuneGrid = xgbgrid2,
+                 metric = "ROC",
+                 verbose = TRUE)
+xgbfit2 
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit2$bestTune
+plot(xgbfit2)
+xgbgrid3 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = xgbfit1$bestTune$eta,
+  max_depth = xgbfit1$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
+  min_child_weight = xgbfit2$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, 1.0))
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit3 <- train(x = x, y = y,
+                 method = "xgbTree",
+                 trControl = fitctrl1,
+                 tuneGrid = xgbgrid3,
+                 metric = "ROC",
+                 verbose = TRUE)
+xgbfit3 
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit3$bestTune
+plot(xgbfit3)
+xgbgrid4 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = xgbfit1$bestTune$eta,
+  max_depth = xgbfit1$bestTune$max_depth,
+  gamma = seq(5,15),
+  colsample_bytree = xgbfit3$bestTune$colsample_bytree,
+  min_child_weight = xgbfit2$bestTune$min_child_weight,
+  subsample = xgbfit3$bestTune$subsample)
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit4 <- train(x = x, y = y,
+                 method = "xgbTree",
+                 trControl = fitctrl1,
+                 tuneGrid = xgbgrid4,
+                 metric = "ROC",
+                 verbose = TRUE)
+xgbfit4 
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit4$bestTune
+plot(xgbfit4)
+xgbfit<-xgbfit4
+plot(xgbfit,main="eXtreme Gradient Boosting")
+library(xgboost)
+xgbgrid0w <- expand.grid(
+  nrounds = 100,
+  max_depth = 6,
+  eta = 0.3,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1)
+set.seed(3333)
+xgbfit0w <- train(x = x, y = y,
+                  trControl = fitctrl0,
+                  tuneGrid = xgbgrid0w,
+                  method = "xgbTree",
+                  weights = weights,
+                  metric = "ROC",
+                  verbose = TRUE)
+xgbfit0w
+nrounds<-1000
+xgbgrid1w <- expand.grid(
+  nrounds = seq(from = 200, to = nrounds, by = 50),
+  eta = 0.025,
+  max_depth = c(2,4,6,8,10),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1)
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit1w <- train(x = x, y = y,
+                  method = "xgbTree",
+                  trControl = fitctrl1,
+                  tuneGrid = xgbgrid1w,
+                  weights = weights,
+                  metric = "ROC",
+                  verbose = TRUE)
+xgbfit1w 
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit1w$bestTune
+plot(xgbfit1w)
+xgbgrid2w <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = 0.025,
+  max_depth = xgbfit1w$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(1,5,10,15,20,25,30),
+  subsample = 1)
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit2w <- train(x = x, y = y,
+                  method = "xgbTree",
+                  trControl = fitctrl1,
+                  tuneGrid = xgbgrid2w,
+                  weights = weights,
+                  metric = "ROC",
+                  verbose = TRUE)
+xgbfit2w 
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit2w$bestTune
+plot(xgbfit2w)
+xgbgrid3w <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = 0.025,
+  max_depth = xgbfit1w$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(0.4, 0.6, 0.8, 1),
+  min_child_weight = xgbfit2w$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, 1))
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit3w <- train(x = x, y = y,
+                  method = "xgbTree",
+                  trControl = fitctrl1,
+                  tuneGrid = xgbgrid3w,
+                  weights = weights,
+                  metric = "ROC",
+                  verbose = TRUE)
+xgbfit3w
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit3w$bestTune
+plot(xgbfit3w)
+xgbgrid4w <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = 0.025,
+  max_depth = xgbfit1w$bestTune$max_depth,
+  gamma = seq(0,5,by=0.5),
+  colsample_bytree = xgbfit3w$bestTune$colsample_bytree,
+  min_child_weight = xgbfit2w$bestTune$min_child_weight,
+  subsample = xgbfit3w$bestTune$subsample)
+start_time <- Sys.time()
+set.seed(3333)
+xgbfit4w <- train(x = x, y = y,
+                  method = "xgbTree",
+                  trControl = fitctrl1,
+                  tuneGrid = xgbgrid4w,
+                  weights = weights,
+                  metric = "ROC",
+                  verbose = TRUE)
+xgbfit4w 
+total_time <- Sys.time() - start_time
+total_time 
+xgbfit4w$bestTune
+plot(xgbfit4w)
+xgbfitw<-xgbfit4w
+plot(xgbfitw,main="eXtreme Gradient Boosting with case weights")
+set.seed(3333)
+testy<-test$H.Win
+load("glm")
+load("glm_vif")
+load("glm_w")
+load("glm_vif_w")
+load("bayglm")
+load("bayglm_vif")
+load("bayglm_w")
+load("bayglm_vif_w")
+load("boostglm")
+load("boostglm_vif")
+load("boostglm_w")
+load("boostglm_vif_w")
+load("mars")
+load("mars_vif")
+load("pls")
+load("pls_vif")
+load("lda")
+load("lda_vif")
+load("pda")
+load("pda_vif")
+load("pda_w")
+load("pda_vif_w")
+load("rda")
+load("rda_vif")
+load("glmnet")
+load("knn")
+load("knn_vif")
+load("pcaknn")
+load("pcaknn_vif")
+load("cart")
+load("cart_w")
+load("bagcart")
+load("bagcart_w")
+load("condtree")
+load("condtree_w")
+load("boosttree")
+load("boosttree_w")
+load("C50")
+load("C50_w")
+load("nnet_vif")
+load("nnet_vif_w")
+load("svm")
+load("svm_vif")
+load("radsvm")
+load("radsvm_vif")
+load("polsvm")
+load("polsvm_vif")
+load("ranger")
+load("ranger_w")
+load("xgb")
+load("xgb_w")
+listmod <- list(glm = glmfit,
+                glm_w = glmfitw,
+                glm_vif = glmfitx,
+                glm_vif_w = glmfitxw,
+                bayglm = bayglmfit,
+                bayglm_w = bayglmfitw,
+                bayglm_vif = bayglmfit,
+                bayglm_vif_w = bayglmfitw,
+                boostglm = glmbfit,
+                boostglm_w = glmbfitw,
+                boostglm_vif = glmbfitx,
+                boostglm_vif_w = glmbfitxw,
+                pls = plsfit,
+                pls_vif = plsfitx,
+                glmnet = glmnetfit,
+                lda = ldafit,
+                lda_vif = ldafitx,
+                pda = pdafit,
+                pda_w = pdafitw,
+                pda_vif = pdafitx,
+                pda_vif_w = pdafitxw,
+                rda = rdafit,
+                rda_vif = rdafitx,
+                knn = knnfit,
+                knn_vif = knnfitx,
+                #pcaknn = pcaknnfit,
+                #pcaknn_vif = pcaknnfitx,
+                mars = marsfit,
+                mars_vif = marsfitx,
+                nnet_vif = nnetfitx,
+                nnet_vif_w = nnetfitxw,
+                cart = cartfit,
+                cart_w = cartfitw,
+                bagcart = bcartfit,
+                bagcart_w = bcartfitw,
+                condtree = ctreefit,
+                condtree_w = ctreefitw,
+                boosttree = btreefit,
+                boosttree_w = btreefitw,
+                C5.0 = C50fit,
+                C5.0_w = C50fitw,
+                rf = rangerfit,
+                rf_w = rangerfitw,
+                xgb = xgbfit,
+                xgb_w = xgbfitw,
+                linsvm = svmfit,
+                linsvm_vif = svmfitx,
+                radsvm = rsvmfit,
+                radsvm_vif = rsvmfitx,
+                polsvm = psvmfit,
+                polsvm_vif = psvmfitx)
+glmimp<-varImp(glmfit,scale = F)
+glmimp
+plot(glmimp,top = 20, main="Logistic Regression")
+glmimpw<-varImp(glmfitw,scale = F)
+glmimpw
+plot(glmimpw,top = 20, main="Logistic Regression with case weights")
+glmimpx<-varImp(glmfitx,scale = F)
+glmimpx
+plot(glmimpx,top = 20, main="Logistic Regression with VIF<10 predictors")
+glmimpxw<-varImp(glmfitxw,scale = F)
+glmimpxw
+plot(glmimpxw,top = 20, main="Logistic Regression with VIF<10 predictors and case weights")
+bayglmimp<-varImp(bayglmfit,scale = F)
+bayglmimp
+plot(bayglmimp,top = 20,main="Bayesian Logistic Regression")
+bayglmimpw<-varImp(bayglmfitw,scale = F)
+bayglmimpw
+plot(bayglmimpw,top = 20,main="Bayesian Logistic Regression with case weights")
+bayglmimpx<-varImp(bayglmfitx,scale = F)
+bayglmimpx
+plot(bayglmimpx,top = 20,main="Bayesian Logistic Regression with VIF<10 predictors")
+bayglmimpxw<-varImp(bayglmfitxw,scale = F)
+bayglmimpxw
+plot(bayglmimpxw,top = 20,main="Bayesian Logistic Regression with VIF<10 predictors and case weights")
+glmbimp<-varImp(glmbfit,scale = F)
+glmbimp
+plot(glmbimp,top = 20,main="Boosted Logistic Regression")
+glmbimpw<-varImp(glmbfitw,scale = F)
+glmbimpw
+plot(glmbimpw,top = 20,main="Boosted Logistic Regression with case weights")
+glmbimpx<-varImp(glmbfitx,scale = F)
+glmbimpx
+plot(glmbimpx,top = 20,main="Boosted Logistic Regression with VIF<10 predictors")
+glmbimpxw<-varImp(glmbfitxw,scale = F)
+glmbimpxw
+plot(glmbimpxw,top = 20,main="Boosted Logistic Regression with VIF<10 predictors and case weights")
+marsimp<-varImp(marsfit,scale = F)
+marsimp
+plot(marsimp,top = 20,main="Multivariate Adaptative Regression Splines")
+marsimpx<-varImp(marsfitx,scale = F)
+marsimpx
+plot(marsimpx,top = 20,main="Multivariate Adaptative Regression Splines with VIF<10 predictors")
+plsimp<-varImp(plsfit,scale = F)
+plsimp
+plot(plsimp,top = 20,main="Partial Least Squares Regression")
+plsimpx<-varImp(plsfitx,scale = F)
+plsimpx
+plot(plsimpx,top = 20,main="Partial Least Squares Regression with VIF<10 predictors")
+ldaimp<-varImp(ldafit,scale = F)
+ldaimp
+plot(ldaimp,top = 20,main="Linear Discriminant Analysis")
+ldaimpx<-varImp(ldafitx,scale = F)
+ldaimpx
+plot(ldaimpx,top = 20,main="Linear Discriminant Analysis with VIF<10 predictors")
+pdaimp<-varImp(pdafit,scale = F)
+pdaimp
+plot(pdaimp,top = 20,main="Penalized Discriminant Analysis")
+pdaimpw<-varImp(pdafitw,scale = F)
+pdaimpw
+plot(pdaimpw,top = 20,main="Penalized Discriminant Analysis with case weights")
+pdaimpx<-varImp(pdafitx,scale = F)
+pdaimpx
+plot(pdaimpx,top = 20,main="Penalized Discriminant Analysis with VIF<10 predictors")
+pdaimpxw<-varImp(pdafitxw,scale = F)
+pdaimpxw
+plot(pdaimpxw,top = 20,main="Penalized Discriminant Analysis with VIF<10 predictors and case weights")
+rdaimp<-varImp(rdafit,scale = F)
+rdaimp
+plot(rdaimp,top = 20,main="Regularized Discriminant Analysis")
+rdaimpx<-varImp(rdafitx,scale = F)
+rdaimpx
+plot(rdaimpx,top = 20,main="Regularized Discriminant Analysis with VIF<10 predictors")
+glmnetimp<-varImp(glmnetfit,scale = F)
+glmnetimp
+plot(glmnetimp,top = 20,main="Glmnet")
+knnimp<-varImp(knnfit,scale = F)
+knnimp
+plot(knnimp,top = 20,main="K-Nearest Neighbours")
+knnimpx<-varImp(knnfitx,scale = F)
+knnimpx
+plot(knnimpx,top = 20,main="K-Nearest Neighbours with VIF<10 predictors")
+pcaknnimp<-varImp(pcaknnfit,scale = F)
+pcaknnimp
+plot(pcaknnimp,top = 20,main="K-Nearest Neighbours with Principal Components Analysis")
+pcaknnimpx<-varImp(pcaknnfitx,scale = F)
+pcaknnimpx
+plot(pcaknnimpx,top = 20,main="K-Nearest Neighbours with VIF<10 predictors \n and Principal Components Analysis")
+cartimp<-varImp(cartfit,scale = F)
+cartimp
+plot(cartimp,top = 20,main="CART")
+cartimpw<-varImp(cartfitw,scale = F)
+cartimpw
+plot(cartimpw,top = 20,main="CART with case weights")
+bcartimp<-varImp(bcartfit,scale = F)
+bcartimp
+plot(bcartimp,top = 20,main="Bagged CART")
+bcartimpw<-varImp(bcartfitw,scale = F)
+bcartimpw
+plot(bcartimpw,top = 20,main="Bagged CART with case weights")
+ctreeimp<-varImp(ctreefit,scale = F) 
+ctreeimp
+plot(ctreeimp,top = 20,main="Conditional Inference Tree")
+ctreeimpw<-varImp(ctreefitw,scale = F) 
+ctreeimpw
+plot(ctreeimpw,top = 20,main="Conditional Inference Tree with case weights")
+btreeimp<-varImp(btreefit,scale = F) 
+btreeimp
+plot(btreeimp,top = 20,main="Boosted Tree")
+btreeimpw<-varImp(btreefitw,scale = F) 
+btreeimpw
+plot(btreeimpw,top = 20,main="Boosted Tree with case weights")
+C50imp<-varImp(C50fit,scale = F) 
+C50imp
+plot(C50imp,top = 20,main="C5.0")
+C50impw<-varImp(C50fitw,scale = F)
+C50impw
+plot(C50impw,top = 20,main="C5.0 with case weights")
+nnetimpx<-varImp(nnetfitx,scale = F) 
+nnetimpx
+plot(nnetimpx,top = 20,main="Neural Network with VIF<10 predictors")
+nnetimpxw<-varImp(nnetfitxw,scale = F) 
+nnetimpxw
+plot(nnetimpxw,top = 20,main="Neural Network with VIF<10 predictors and case weights")
+svmimp<-varImp(svmfit,scale = F)
+svmimp
+plot(svmimp,top = 20,main="Support Vector Machines with Linear Kernel")
+svmimpx<-varImp(svmfitx,scale = F)
+svmimpx
+plot(svmimpx,top = 20,main="Support Vector Machines with Linear Kernel with VIF<10 predictors")
+rsvmimp<-varImp(rsvmfit,scale = F)
+rsvmimp
+plot(rsvmimp,top = 20,main="Support Vector Machines with Radial Basis Function Kernel")
+#radsvm_vif
+rsvmimpx<-varImp(rsvmfitx,scale = F)
+rsvmimpx
+plot(rsvmimpx,top = 20,main="Support Vector Machines with Radial Basis Function Kernel \n with VIF<10 predictors")
+psvmimp<-varImp(psvmfit,scale = F)
+psvmimp
+plot(psvmimp,top = 20,main="Support Vector Machines with Polynomial Kernel")
+psvmimpx<-varImp(psvmfitx,scale = F)
+psvmimpx
+plot(psvmimpx,top = 20,main="Support Vector Machines with Polynomial Kernel with VIF<10 predictors")
+rangerimp<-varImp(rangerfit,scale = F)
+rangerimp
+plot(rangerimp,top = 20,main="Random Forest")
+rangerimpw<-varImp(rangerfitw,scale = F)
+rangerimpw
+plot(rangerimpw,top = 20,main="Random Forest with case weights")
+xgbimp<-varImp(xgbfit,scale = F)
+xgbimp
+plot(xgbimp,top = 20,main="eXtreme Gradient Boosting")
+xgbimpw<-varImp(xgbfitw,scale = F)
+xgbimpw
+plot(xgbimpw,top = 20,main="eXtreme Gradient Boosting with case weights")
+vipvar <- data.frame(V1=rep(NA,51),V2=rep(NA,51),V3=rep(NA,51),V4=rep(NA,51),V5=rep(NA,51))
+vipvar[1,] <- c("H.elobefore", "A.elobefore", "A.DayOff", "H.DayOff", "H.log5fpyth1391") 
+vipvar[2,] <- c("H.elobefore", "A.elobefore", "A.DayOff", "H.DayOff", "H.log5fpyth1391")
+vipvar[3,] <- c("H.elobefore", "A.elobefore", "H.PTS1.av", "A.DayOff", "A.3Pp.ewa")
+vipvar[4,] <- c("H.elobefore", "A.elobefore", "H.PTS1.av", "A.DayOff", "A.3Pp.ewa")
+vipvar[5,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[6,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[7,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[8,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[9,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", "A.2PA.av", "A.PTS1.av")
+vipvar[10,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", "A.2PA.av", "A.PTS1.av")
+vipvar[11,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", "A.PTS1.av", "A.DayOff")
+vipvar[12,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", "A.PTS1.av", "A.DayOff")
+vipvar[13,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", NA, NA)
+vipvar[14,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", NA, NA)
+vipvar[15,] <- c("H.log5fpyth1391", "H.elobefore", "A.elobefore", "H.W_Lp.bef", "A.W_Lp.bef")
+vipvar[16,] <- c("H.log5fpyth1391", "H.elobefore", "A.elobefore", "H.W_Lp.bef", "H.lastTen.bef")
+vipvar[17,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[18,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[19,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[20,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[21,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[22,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[23,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[24,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[25,] <- c("H.log5fpyth1391", "A.FGMASTp.ewa", "H.STL.ewa", "A.PTS6.ewa", "A.PTS1.av")
+vipvar[26,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[27,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[28,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[29,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[30,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[31,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[32,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.FGp.av")
+vipvar[33,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.FGp.av")
+vipvar[34,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[35,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[36,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[37,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[38,] <- c("H.log5fpyth1391", "H.elobefore", "H.lastFive.bef", "H.confL.bef", "A.DayOff")
+vipvar[39,] <- c("A.confL.bef", "A.elobefore", "H.log5fpyth1391", "H.lastTen.bef", "H.confL.bef")
+vipvar[40,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", "A.PTS1.av", "A.TSp.ewa")
+vipvar[41,] <- c("H.elobefore", "A.elobefore", "H.log5fpyth1391", "A.PTS1.av", "A.TSp.ewa")
+vipvar[42,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[43,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[44,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[45,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[46,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[47,] <- c("H.log5fpyth1391", "H.elobefore", "H.W_Lp.bef", "A.elobefore", "A.W_Lp.bef")
+vipvar[48,] <- c("H.log5fpyth1391", "H.elobefore", "A.elobefore", "H.W_Lp.bef", "A.W_Lp.bef")
+vipvar[49,] <- c("H.log5fpyth1391", "H.elobefore", "A.elobefore", "H.W_Lp.bef", "A.W_Lp.bef")
+vipvar[50,] <- c("H.log5fpyth1391", "H.elobefore", "A.elobefore", "H.W_Lp.bef", "A.W_Lp.bef")
+vipvar[51,] <- c("H.log5fpyth1391", "H.elobefore", "A.elobefore", "H.W_Lp.bef", "A.W_Lp.bef")
+rownames(vipvar)<-c("glm","glm_w","glm_vif","glm_vif_w",
+                    "bayglm","bayglm_w","bayglm_vif","bayglm_vif_w",
+                    "boostglm","boostglm_w","boostglm_vif","boostglm_vif_w",
+                    "mars","mars_vif","pls","pls_vif",
+                    "lda","lda_vif","pda","pda_w","pda_vif","pda_vif_w","rda","rda_vif",
+                    "glmnet","knn","knn_vif","pcaknn","pcaknn_vif",
+                    "cart","cart_w","bagcart","bagcart_w",
+                    "condtree","condtree_w","boosttree","boosttree_w",
+                    "C5.0","C5.0_w","nnet_vif","nnet_vif_w",
+                    "linsvm","linsvm_vif","radsvm","radsvm_vif","polsvm","polsvm_vif",
+                    "rf","rf_w","xgb","xgb_w")
+vipvar[] <- lapply(vipvar, factor)
+summary(vipvar)
+glmclass <- predict(glmfit, newdata = test)
+glmconf <- confusionMatrix(data = glmclass, testy)
+glmconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmclassw <- predict(glmfitw, newdata = test)
+glmconfw <- confusionMatrix(data = glmclassw, testy)
+glmconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmclassx <- predict(glmfitx, newdata = testx)
+glmconfx <- confusionMatrix(data = glmclassx, testy)
+glmconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmclassxw <- predict(glmfitxw, newdata = testx)
+glmconfxw <- confusionMatrix(data = glmclassxw, testy)
+glmconfxw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+bayglmclass <- predict(bayglmfit, newdata = test)
+bayglmconf <- confusionMatrix(data = bayglmclass, testy)
+bayglmconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+bayglmclassw <- predict(bayglmfitw, newdata = test)
+bayglmconfw <- confusionMatrix(data = bayglmclassw, testy)
+bayglmconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+bayglmclassx <- predict(bayglmfitx, newdata = testx)
+bayglmconfx <- confusionMatrix(data = bayglmclassx, testy)
+bayglmconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+bayglmclassxw <- predict(bayglmfitxw, newdata = testx)
+bayglmconfxw <- confusionMatrix(data = bayglmclassxw, testy)
+bayglmconfxw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmbclass <- predict(glmbfit, newdata = test)
+glmbconf <- confusionMatrix(data = glmbclass, testy)
+glmbconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmbclassw <- predict(glmbfitw, newdata = test)
+glmbconfw <- confusionMatrix(data = glmbclassw, testy)
+glmbconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmbclassx <- predict(glmbfitx, newdata = testx)
+glmbconfx <- confusionMatrix(data = glmbclassx, testy)
+glmbconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmbclassxw <- predict(glmbfitxw, newdata = testx)
+glmbconfxw <- confusionMatrix(data = glmbclassxw, testy)
+glmbconfxw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+marsclass <- predict(marsfit, newdata = test)
+marsconf <- confusionMatrix(data = marsclass, testy)
+marsconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+marsclassx <- predict(marsfitx, newdata = testx)
+marsconfx <- confusionMatrix(data = marsclassx, testy)
+marsconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+plot(plsfit)
+plsclass <- predict(plsfit, newdata = test)
+plsconf <- confusionMatrix(data = plsclass, testy)
+plsconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+plot(plsfitx)
+plsclassx <- predict(plsfitx, newdata = testx)
+plsconfx <- confusionMatrix(data = plsclassx, testy)
+plsconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+ldaclass <- predict(ldafit, newdata = test)
+ldaconf <- confusionMatrix(data = ldaclass, testy)
+ldaconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+ldaclassx <- predict(ldafitx, newdata = testx)
+ldaconfx <- confusionMatrix(data = ldaclassx, testy)
+ldaconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+pdaclass <- predict(pdafit, newdata = test)
+pdaconf <- confusionMatrix(data = pdaclass, testy)
+pdaconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+pdaclassw <- predict(pdafitw, newdata = test)
+pdaconfw <- confusionMatrix(data = pdaclassw, testy)
+pdaconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+pdaclassx <- predict(pdafitx, newdata = testx)
+pdaconfx <- confusionMatrix(data = pdaclassx, testy)
+pdaconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+pdaclassxw <- predict(pdafitxw, newdata = testx)
+pdaconfxw <- confusionMatrix(data = pdaclassxw, testy)
+pdaconfxw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+rdaclass <- predict(rdafit, newdata = test)
+rdaconf <- confusionMatrix(data = rdaclass, testy)
+rdaconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+rdaclassx <- predict(rdafitx, newdata = testx)
+rdaconfx <- confusionMatrix(data = rdaclassx, testy)
+rdaconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+glmnetclass <- predict(glmnetfit, newdata = test)
+glmnetconf <- confusionMatrix(data = glmnetclass, testy)
+glmnetconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+knnclass <- predict(knnfit, newdata = test)
+knnconf <- confusionMatrix(data = knnclass, testy)
+knnconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+knnclassx <- predict(knnfitx, newdata = testx)
+knnconfx <- confusionMatrix(data = knnclassx, testy)
+knnconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+cartclass <- predict(cartfit, newdata = test)
+cartconf <- confusionMatrix(data = cartclass, testy)
+cartconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+cartclassw <- predict(cartfitw, newdata = test)
+cartconfw <- confusionMatrix(data = cartclassw, testy)
+cartconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+bcartclass <- predict(bcartfit, newdata = test)
+bcartconf <- confusionMatrix(data = bcartclass, testy)
+bcartconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+bcartclassw <- predict(bcartfitw, newdata = test)
+bcartconfw <- confusionMatrix(data = bcartclassw, testy)
+bcartconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+ctreeclass <- predict(ctreefit, newdata = test)
+ctreeconf <- confusionMatrix(data = ctreeclass, testy)
+ctreeconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+ctreeclassw <- predict(ctreefitw, newdata = test)
+ctreeconfw <- confusionMatrix(data = ctreeclassw, testy)
+ctreeconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+btreeclass <- predict(btreefit, newdata = test)
+btreeconf <- confusionMatrix(data = btreeclass, testy)
+btreeconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+btreeclassw <- predict(btreefitw, newdata = test)
+btreeconfw <- confusionMatrix(data = btreeclassw, testy)
+btreeconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+C50class <- predict(C50fit, newdata = test)
+C50conf <- confusionMatrix(data = C50class, testy)
+C50conf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+C50classw <- predict(C50fitw, newdata = test)
+C50confw <- confusionMatrix(data = C50classw, testy)
+C50confw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+nnetclassx <- predict(nnetfitx, newdata = testx)
+nnetconfx <- confusionMatrix(data = nnetclassx, testy)
+nnetconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+nnetclassxw <- predict(nnetfitxw, newdata = testx)
+nnetconfxw <- confusionMatrix(data = nnetclassxw, testy)
+nnetconfxw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+svmclass <- predict(svmfit, newdata = test)
+svmconf <- confusionMatrix(data = svmclass, testy)
+svmconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+svmclassx <- predict(svmfitx, newdata = testx)
+svmconfx <- confusionMatrix(data = svmclassx, testy)
+svmconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+rsvmclass <- predict(rsvmfit, newdata = test)
+rsvmconf <- confusionMatrix(data = rsvmclass, testy)
+rsvmconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+rsvmclassx <- predict(rsvmfitx, newdata = testx)
+rsvmconfx <- confusionMatrix(data = rsvmclassx, testy)
+rsvmconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+psvmclass <- predict(psvmfit, newdata = test)
+psvmconf <- confusionMatrix(data = psvmclass, testy)
+psvmconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+psvmclassx <- predict(psvmfitx, newdata = testx)
+psvmconfx <- confusionMatrix(data = psvmclassx, testy)
+psvmconfx$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+rangerclass <- predict(rangerfit, newdata = test)
+rangerconf <- confusionMatrix(data = rangerclass, testy)
+rangerconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+rangerclassw <- predict(rangerfitw, newdata = test)
+rangerconfw <- confusionMatrix(data = rangerclassw, testy)
+rangerconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+xgbclass <- predict(xgbfit, newdata = test)
+xgbconf <- confusionMatrix(data = xgbclass, testy)
+xgbconf$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+xgbclassw <- predict(xgbfitw, newdata = test)
+xgbconfw <- confusionMatrix(data = xgbclassw, testy)
+xgbconfw$overall[c("AccuracyLower","Accuracy","AccuracyUpper")]
+set.seed(3333)
+res <- resamples(listmod)
+ressum<-summary(res)
+roctot<-ressum$statistics$ROC
+sort(roctot[,4])
+dotplot(res, metric = "ROC", main="Model Comparison")
+dotplot(res, metric = "Sens") 
+dotplot(res, metric = "Spec") 
+modelCor(res)
+avprob <- (pdaprob+glmbprobxw+C50prob)/3
+roc_av <- roc(testy,avprob)
+roc_av
+avclass<-as.factor(ifelse(avprob<0.5,"win","loss"))
+a <- confusionMatrix(data = avclass, testy)
+a
+results <- data.frame(model1 = pdaclass,
+                      model2 = glmbclassxw,
+                      model3 = C50class)
+chooseBestModel <- function(x) {
+  tabulatedOutcomes <- table(x)
+  sortedOutcomes <- sort(tabulatedOutcomes, decreasing=TRUE)
+  mostCommonLabel <- names(sortedOutcomes)[1]
+  mostCommonLabel
+}
+bb<-as.factor(apply(results, 1, chooseBestModel))
+b <- confusionMatrix(data = bb, testy)
+b
